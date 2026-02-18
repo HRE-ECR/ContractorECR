@@ -19,23 +19,36 @@ export default function NavBar() {
   }
 
   const isActive = (path) => location.pathname === path
+  const linkBase = 'px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap'
   const linkClass = (path) =>
-    `px-3 py-2 rounded-md text-sm font-medium ${isActive(path) ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-700'}`
+    `${linkBase} ${isActive(path) ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-700'}`
 
   return (
     <nav className="bg-slate-900 text-white">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <Link to="/" className="font-semibold tracking-tight">ContractorECR</Link>
-        <div className="flex items-center gap-2">
-          <Link className={linkClass('/')} to="/">Home</Link>
-          <Link className={linkClass('/sign-in')} to="/sign-in">Sign-in</Link>
-          <Link className={linkClass('/sign-out')} to="/sign-out">Sign-out</Link>
-          {user && <Link className={linkClass('/dashboard')} to="/dashboard">Dashboard</Link>}
-          {user ? (
-            <button onClick={handleSignOut} className="ml-2 px-3 py-2 text-sm bg-red-600 hover:bg-red-700 rounded">Logout</button>
-          ) : (
-            <Link className={linkClass('/login')} to="/login">Team leader login</Link>
-          )}
+      <div className="max-w-6xl mx-auto px-4 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Link to="/" className="font-semibold tracking-tight text-lg">ContractorECR</Link>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Link className={linkClass('/')} to="/">Home</Link>
+            <Link className={linkClass('/sign-in')} to="/sign-in">Sign-in</Link>
+            <Link className={linkClass('/sign-out')} to="/sign-out">Sign-out</Link>
+
+            {user && (
+              <Link className={linkClass('/dashboard')} to="/dashboard">Dashboard</Link>
+            )}
+
+            {user ? (
+              <button
+                onClick={handleSignOut}
+                className="px-3 py-2 text-sm bg-red-600 hover:bg-red-700 rounded-md whitespace-nowrap"
+              >
+                Logout
+              </button>
+            ) : (
+              <Link className={linkClass('/login')} to="/login">Team leader login</Link>
+            )}
+          </div>
         </div>
       </div>
     </nav>

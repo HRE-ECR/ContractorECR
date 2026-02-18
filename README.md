@@ -1,9 +1,11 @@
 # ContractorECR
 
-This build fixes the GitHub Actions build error caused by a broken regex in Dashboard.jsx.
+Changes in v0.4.3
+- Nav bar is responsive and no longer squashed on the landing page.
+- Dashboard: added Refresh button.
+- Dashboard: On-site table shows "Signed in by".
+- Wherever emails are displayed for sign-in/out, the domain is removed (e.g. jason.edwards@hitachirail.com -> jason.edwards).
 
-If you see an "Unterminated regular expression" error, ensure the line below is NOT split across lines:
-
-```js
-if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
-```
+Important build notes
+- Keep csvEscape regex on one line.
+- Keep CSV join as `.join('\n')` (must not become a real line-break in quotes).
