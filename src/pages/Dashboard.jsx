@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient'
 
 const AREAS = ['M1', 'M2', 'Insp', '1CL', '2CL', '3CL', '4CL']
 
-// Avoid putting '\n' directly in strings (some editors/Teams inject real line breaks)
+// Avoid writing '\n' directly in strings (some editors/Teams can inject real line breaks)
 const NL = String.fromCharCode(10)
 
 function Summary({ items }) {
@@ -56,7 +56,6 @@ function csvEscape(v) {
   const s = String(v)
 
   // No regex here (prevents regex literal line-split build failures)
-  // Use NL constant to detect newlines safely
   if (s.includes('"') || s.includes(',') || s.includes(NL)) {
     return '"' + s.replace(/"/g, '""') + '"'
   }
@@ -126,9 +125,10 @@ function AwaitingRow({ item, onConfirm }) {
         />
       </Td>
       <Td>
+        {/* GREEN button */}
         <button
           onClick={() => onConfirm(item.id, fob)}
-          className="px-3 py-1 bg-slate-900 text-white rounded hover:bg-slate-800"
+          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
         >
           Confirm sign-in
         </button>
@@ -228,13 +228,25 @@ export default function Dashboard() {
     else load()
   }
 
+  // ✅ Fix: checkbox updates instantly (optimistic UI), and reverts on error
   async function setFobReturned(itemId, value) {
+    const prevItems = items
+
+    // optimistic update
+    setItems(curr =>
+      curr.map(i => (i.id === itemId ? { ...i, fob_returned: value } : i))
+    )
+
     const { error } = await supabase
       .from('contractors')
       .update({ fob_returned: value })
       .eq('id', itemId)
 
-    if (error) alert(error.message)
+    if (error) {
+      // revert
+      setItems(prevItems)
+      alert(error.message)
+    }
   }
 
   async function remove(itemId) {
@@ -334,7 +346,13 @@ export default function Dashboard() {
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th></Th>
+              <Th>Name</Th>
+              <Th>Company</Th>
+              <Th>Phone</Th>
+              <Th>Areas</Th>
+              <Th>Signed in</Th>
+              <Th>Fob #</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
@@ -348,19 +366,28 @@ export default function Dashboard() {
         </Table>
       </div>
 
-      {/* On site */}
+      {/* On site (NOW includes Signed in datetime) */}
       <div className="bg-white border rounded mb-6">
         <div className="px-4 py-2 border-b bg-slate-50 font-semibold">On site</div>
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Fob #</Th><Th>Signed in by</Th>
-              <Th>Fob returned</Th><Th>Sign-out requested</Th><Th></Th>{isAdmin && <Th></Th>}
+              <Th>Name</Th>
+              <Th>Company</Th>
+              <Th>Phone</Th>
+              <Th>Areas</Th>
+              <Th>Signed in</Th>
+              <Th>Fob #</Th>
+              <Th>Signed in by</Th>
+              <Th>Fob returned</Th>
+              <Th>Sign-out requested</Th>
+              <Th></Th>
+              {isAdmin && <Th></Th>}
             </tr>
           </thead>
           <tbody>
             {onSite.length === 0 && (
-              <tr><Td colSpan={isAdmin ? 10 : 9} className="text-center text-slate-500">None</Td></tr>
+              <tr><Td colSpan={isAdmin ? 11 : 10} className="text-center text-slate-500">None</Td></tr>
             )}
 
             {onSite.map(i => (
@@ -369,6 +396,7 @@ export default function Dashboard() {
                 <Td>{i.company}</Td>
                 <Td>{i.phone}</Td>
                 <Td>{(i.areas || []).join(', ')}</Td>
+                <Td>{formatDate(i.signed_in_at)}</Td>
                 <Td>{i.fob_number || <span className="text-slate-400">-</span>}</Td>
                 <Td>{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}</Td>
                 <Td>
@@ -383,7 +411,11 @@ export default function Dashboard() {
                   <button
                     disabled={!i.fob_returned}
                     onClick={() => confirmSignOut(i.id)}
-                    className={`px-3 py-1 rounded ${i.fob_returned ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
+                    className={`px-3 py-1 rounded ${
+                      i.fob_returned
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                    }`}
                   >
                     Confirm sign-out
                   </button>
@@ -431,8 +463,16 @@ export default function Dashboard() {
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Fob #</Th><Th>Fob returned</Th>
-              <Th>Signed in</Th><Th>Signed out</Th><Th>Signed in by</Th><Th>Signed out by</Th>
+              <Th>Name</Th>
+              <Th>Company</Th>
+              <Th>Phone</Th>
+              <Th>Areas</Th>
+              <Th>Fob #</Th>
+              <Th>Fob returned</Th>
+              <Th>Signed in</Th>
+              <Th>Signed out</Th>
+              <Th>Signed in by</Th>
+              <Th>Signed out by</Th>
             </tr>
           </thead>
           <tbody>
