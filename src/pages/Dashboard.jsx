@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient'
 
 const AREAS = ['M1', 'M2', 'Insp', '1CL', '2CL', '3CL', '4CL']
 
-// Avoid writing '\n' directly in strings (some editors/Teams can inject real line breaks)
+// Avoid writing '\n' directly in strings (some editors/Teams inject real line breaks)
 const NL = String.fromCharCode(10)
 
 function Summary({ items }) {
@@ -125,7 +125,6 @@ function AwaitingRow({ item, onConfirm }) {
         />
       </Td>
       <Td>
-        {/* GREEN button */}
         <button
           onClick={() => onConfirm(item.id, fob)}
           className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
@@ -144,6 +143,24 @@ export default function Dashboard() {
   const [isAdmin, setIsAdmin] = React.useState(false)
   const [error, setError] = React.useState('')
   const [signedOutLimit, setSignedOutLimit] = React.useState(10)
+
+  // ✅ Rule engine:
+  // - Admin: can confirm sign-out if FOB returned is true
+  // - Teamleader: can confirm sign-out only if FOB returned is true AND sign-out requested is true
+  function canConfirmSignOut(item) {
+    if (!item) return false
+    if (!item.fob_returned) return false
+    if (isAdmin) return true
+    return !!item.signout_requested
+  }
+
+  function signOutDisabledReason(item) {
+    if (!item) return 'Unavailable'
+    if (!item.fob_returned) return 'Fob must be returned first'
+    if (isAdmin) return '' // admin can proceed once fob returned
+    if (!item.signout_requested) return 'Sign-out must be requested first'
+    return ''
+  }
 
   async function load() {
     setError('')
@@ -209,7 +226,15 @@ export default function Dashboard() {
     else load()
   }
 
-  async function confirmSignOut(itemId) {
+  // ✅ Now takes the full item so we can validate current flags
+  async function confirmSignOut(item) {
+    // Guard even if someone tries to trigger it manually
+    if (!canConfirmSignOut(item)) {
+      const msg = signOutDisabledReason(item) || 'Not allowed'
+      alert(`Cannot confirm sign-out: ${msg}`)
+      return
+    }
+
     const { data: userData } = await supabase.auth.getUser()
     const uid = userData.user?.id || null
     const email = userData.user?.email || null
@@ -222,7 +247,7 @@ export default function Dashboard() {
         signed_out_by: uid,
         signed_out_by_email: email,
       })
-      .eq('id', itemId)
+      .eq('id', item.id)
 
     if (error) alert(error.message)
     else load()
@@ -232,7 +257,6 @@ export default function Dashboard() {
   async function setFobReturned(itemId, value) {
     const prevItems = items
 
-    // optimistic update
     setItems(curr =>
       curr.map(i => (i.id === itemId ? { ...i, fob_returned: value } : i))
     )
@@ -243,7 +267,6 @@ export default function Dashboard() {
       .eq('id', itemId)
 
     if (error) {
-      // revert
       setItems(prevItems)
       alert(error.message)
     }
@@ -366,7 +389,7 @@ export default function Dashboard() {
         </Table>
       </div>
 
-      {/* On site (NOW includes Signed in datetime) */}
+      {/* On site */}
       <div className="bg-white border rounded mb-6">
         <div className="px-4 py-2 border-b bg-slate-50 font-semibold">On site</div>
         <Table>
@@ -390,48 +413,54 @@ export default function Dashboard() {
               <tr><Td colSpan={isAdmin ? 11 : 10} className="text-center text-slate-500">None</Td></tr>
             )}
 
-            {onSite.map(i => (
-              <tr key={i.id} className="border-t">
-                <Td>{i.first_name} {i.surname}</Td>
-                <Td>{i.company}</Td>
-                <Td>{i.phone}</Td>
-                <Td>{(i.areas || []).join(', ')}</Td>
-                <Td>{formatDate(i.signed_in_at)}</Td>
-                <Td>{i.fob_number || <span className="text-slate-400">-</span>}</Td>
-                <Td>{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}</Td>
-                <Td>
-                  <input
-                    type="checkbox"
-                    checked={!!i.fob_returned}
-                    onChange={e => setFobReturned(i.id, e.target.checked)}
-                  />
-                </Td>
-                <Td>{i.signout_requested ? 'Yes' : 'No'}</Td>
-                <Td>
-                  <button
-                    disabled={!i.fob_returned}
-                    onClick={() => confirmSignOut(i.id)}
-                    className={`px-3 py-1 rounded ${
-                      i.fob_returned
-                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                        : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    Confirm sign-out
-                  </button>
-                </Td>
-                {isAdmin && (
+            {onSite.map(i => {
+              const canSignOut = canConfirmSignOut(i)
+              const reason = signOutDisabledReason(i)
+
+              return (
+                <tr key={i.id} className="border-t">
+                  <Td>{i.first_name} {i.surname}</Td>
+                  <Td>{i.company}</Td>
+                  <Td>{i.phone}</Td>
+                  <Td>{(i.areas || []).join(', ')}</Td>
+                  <Td>{formatDate(i.signed_in_at)}</Td>
+                  <Td>{i.fob_number || <span className="text-slate-400">-</span>}</Td>
+                  <Td>{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}</Td>
+                  <Td>
+                    <input
+                      type="checkbox"
+                      checked={!!i.fob_returned}
+                      onChange={e => setFobReturned(i.id, e.target.checked)}
+                    />
+                  </Td>
+                  <Td>{i.signout_requested ? 'Yes' : 'No'}</Td>
                   <Td>
                     <button
-                      onClick={() => remove(i.id)}
-                      className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
+                      disabled={!canSignOut}
+                      title={!canSignOut ? reason : 'Confirm sign-out'}
+                      onClick={() => confirmSignOut(i)}
+                      className={`px-3 py-1 rounded ${
+                        canSignOut
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                      }`}
                     >
-                      Delete
+                      Confirm sign-out
                     </button>
                   </Td>
-                )}
-              </tr>
-            ))}
+                  {isAdmin && (
+                    <Td>
+                      <button
+                        onClick={() => remove(i.id)}
+                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
+                      >
+                        Delete
+                      </button>
+                    </Td>
+                  )}
+                </tr>
+              )
+            })}
           </tbody>
         </Table>
       </div>
