@@ -1,4 +1,3 @@
-
 import React from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
@@ -14,7 +13,7 @@ export default function ProtectedRoute({ children }) {
     })
   }, [])
 
-  if (loading) return <div className="p-6">Loading…</div>
+  if (loading) return <div className="p-6">Loading...</div>
   if (!session) return <Navigate to="/login" />
   return children
 }

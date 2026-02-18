@@ -7,7 +7,6 @@ begin
   if not exists (select 1 from pg_type where typname = 'area_type') then
     create type area_type as enum ('M1','M2','Insp','1CL','2CL','3CL','4CL');
   end if;
-
   if not exists (select 1 from pg_type where typname = 'status_type') then
     create type status_type as enum ('pending','confirmed','signed_out');
   end if;
@@ -27,7 +26,6 @@ begin
   insert into public.profiles (id, email)
   values (new.id, new.email)
   on conflict do nothing;
-
   return new;
 end;
 $$ language plpgsql security definer;
@@ -53,10 +51,20 @@ create table if not exists public.contractors (
   signout_requested boolean not null default false,
   signed_in_at timestamptz not null default now(),
   sign_in_confirmed_at timestamptz,
+  sign_in_confirmed_by uuid,
+  sign_in_confirmed_by_email text,
   signed_out_at timestamptz,
+  signed_out_by uuid,
+  signed_out_by_email text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- If you are upgrading an existing table, these keep the script idempotent
+alter table public.contractors add column if not exists sign_in_confirmed_by uuid;
+alter table public.contractors add column if not exists sign_in_confirmed_by_email text;
+alter table public.contractors add column if not exists signed_out_by uuid;
+alter table public.contractors add column if not exists signed_out_by_email text;
 
 -- Ensure at least one area selected (idempotent)
 do $$
@@ -80,8 +88,6 @@ begin
   return new;
 end;
 $$ language plpgsql;
-
--- Make trigger idempotent
 
 drop trigger if exists set_timestamp on public.contractors;
 create trigger set_timestamp
@@ -116,19 +122,13 @@ grant execute on function public.request_signout(text, text) to anon, authentica
 -- Role helper functions for RLS
 create or replace function public.is_admin() returns boolean as $$
   select exists (
-    select 1
-    from public.profiles
-    where id = auth.uid()
-      and role = 'admin'
+    select 1 from public.profiles where id = auth.uid() and role = 'admin'
   );
 $$ language sql stable;
 
 create or replace function public.is_teamleader() returns boolean as $$
   select exists (
-    select 1
-    from public.profiles
-    where id = auth.uid()
-      and role in ('teamleader','admin')
+    select 1 from public.profiles where id = auth.uid() and role in ('teamleader','admin')
   );
 $$ language sql stable;
 
@@ -136,9 +136,8 @@ $$ language sql stable;
 alter table public.contractors enable row level security;
 alter table public.profiles enable row level security;
 
--- Policies (drop then create; Supabase does not support create policy if not exists)
+-- Policies
 
--- Profiles policies
 drop policy if exists "Profiles are viewable by owners" on public.profiles;
 create policy "Profiles are viewable by owners"
 on public.profiles
@@ -153,13 +152,16 @@ for select
 to authenticated
 using (public.is_admin());
 
--- Contractors policies
+-- Anyone (anon) can insert a contractor sign-in request
+
 drop policy if exists "Public can insert contractor sign-in" on public.contractors;
 create policy "Public can insert contractor sign-in"
 on public.contractors
 for insert
 to anon
 with check (true);
+
+-- Team leaders can read all
 
 drop policy if exists "Teamleaders can read contractors" on public.contractors;
 create policy "Teamleaders can read contractors"
@@ -168,12 +170,16 @@ for select
 to authenticated
 using (public.is_teamleader());
 
+-- Team leaders can update (confirm sign-in/out, fob status)
+
 drop policy if exists "Teamleaders can update contractors" on public.contractors;
 create policy "Teamleaders can update contractors"
 on public.contractors
 for update
 to authenticated
 using (public.is_teamleader());
+
+-- Only admins can delete rows
 
 drop policy if exists "Admins can delete contractors" on public.contractors;
 create policy "Admins can delete contractors"
@@ -182,7 +188,7 @@ for delete
 to authenticated
 using (public.is_admin());
 
--- Cleanup function to delete old data (older than N days based on last activity)
+-- Cleanup function to delete old data
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 7)
 returns void as $$
 begin
@@ -194,7 +200,6 @@ $$ language plpgsql security definer;
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
 
 -- Optional: schedule daily cleanup at 03:00 using pg_cron if available
--- Uses DO $do$ to avoid nested $$ delimiter collisions.
 DO $do$
 BEGIN
   BEGIN

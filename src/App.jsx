@@ -1,6 +1,5 @@
-
 import React from 'react'
-import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import Landing from './pages/Landing'
 import SignIn from './pages/SignIn'
 import SignOut from './pages/SignOut'
@@ -13,7 +12,7 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <NavBar />
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4">
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4">
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/sign-in" element={<SignIn />} />
@@ -30,8 +29,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
         <footer className="text-center text-xs text-slate-500 mt-6">
-          <p>© {new Date().getFullYear()} Site Pass</p>
-          <p className="mt-1">Built for quick on-site contractor/visitor management.</p>
+          <p>© {new Date().getFullYear()} ContractorECR</p>
         </footer>
       </main>
     </div>
