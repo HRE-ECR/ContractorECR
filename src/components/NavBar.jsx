@@ -20,8 +20,7 @@ export default function NavBar() {
 
   const isActive = (path) => location.pathname === path
   const linkBase = 'px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap'
-  const linkClass = (path) =>
-    `${linkBase} ${isActive(path) ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-700'}`
+  const linkClass = (path) => `${linkBase} ${isActive(path) ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-700'}`
 
   return (
     <nav className="bg-slate-900 text-white">
@@ -39,10 +38,7 @@ export default function NavBar() {
             )}
 
             {user ? (
-              <button
-                onClick={handleSignOut}
-                className="px-3 py-2 text-sm bg-red-600 hover:bg-red-700 rounded-md whitespace-nowrap"
-              >
+              <button onClick={handleSignOut} className="px-3 py-2 text-sm bg-red-600 hover:bg-red-700 rounded-md whitespace-nowrap">
                 Logout
               </button>
             ) : (

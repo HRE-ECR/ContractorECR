@@ -44,9 +44,12 @@ function shortEmail(email) {
 function csvEscape(v) {
   if (v === null || v === undefined) return ''
   const s = String(v)
-  // keep on one line
-  if (/[",
-]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+
+  // No regex (prevents editors from breaking the file by inserting newlines)
+  if (s.includes('"') || s.includes(',') || s.includes('
+')) {
+    return '"' + s.replace(/"/g, '""') + '"'
+  }
   return s
 }
 
