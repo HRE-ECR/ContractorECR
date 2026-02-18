@@ -3,22 +3,97 @@ import { supabase } from '../supabaseClient'
 
 const AREAS = ['M1', 'M2', 'Insp', '1CL', '2CL', '3CL', '4CL']
 
-// Avoid writing '\n' directly (some editors/Teams can inject real line breaks into strings)
-// This is a safe newline constant:
+// Avoid putting '\n' directly in strings (some editors/Teams inject real line breaks)
 const NL = String.fromCharCode(10)
 
 function Summary({ items }) {
   const onSite = items.filter(i => i.status !== 'signed_out' && !i.signed_out_at)
   const total = onSite.length
-  const perArea = {}
 
-  AREAS.forEach(a => {
-    perArea[a] = 0
-  })
+  const perArea = {}
+  AREAS.forEach(a => { perArea[a] = 0 })
 
   onSite.forEach(i => {
-    ;(i.areas || []).forEach(a => {
-      px-4 py-2">      if (perArea[a] !== undefined) perArea[a]++
+    const areas = i.areas || []
+    areas.forEach(a => {
+      if (perArea[a] !== undefined) perArea[a] += 1
+    })
+  })
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div className="p-3 bg-white border rounded">
+        <div className="text-xs text-slate-500">Total on site</div>
+        <div className="text-2xl font-semibold">{total}</div>
+      </div>
+
+      {AREAS.map(a => (
+        <div key={a} className="p-3 bg-white border rounded">
+          <div className="text-xs text-slate-500">{a}</div>
+          <div className="text-xl font-semibold">{perArea[a]}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function formatDate(value) {
+  if (!value) return ''
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return String(value)
+  }
+}
+
+function shortEmail(email) {
+  if (!email) return ''
+  return String(email).split('@')[0]
+}
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return ''
+  const s = String(v)
+
+  // No regex here (prevents regex literal line-split build failures)
+  // Use NL constant to detect newlines safely
+  if (s.includes('"') || s.includes(',') || s.includes(NL)) {
+    return '"' + s.replace(/"/g, '""') + '"'
+  }
+  return s
+}
+
+function downloadCsv(filename, rows) {
+  if (!rows || rows.length === 0) return
+
+  const header = Object.keys(rows[0]).join(',')
+  const lines = rows.map(r => Object.values(r).map(csvEscape).join(','))
+  const csv = [header, ...lines].join(NL)
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+
+  URL.revokeObjectURL(url)
+}
+
+function Table({ children }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full">{children}</table>
+    </div>
+  )
+}
+
+function Th({ children }) {
+  return (
+    <th className="text-left text-xs uppercase tracking-wider text-slate-500 px-4 py-2">
       {children}
     </th>
   )
@@ -232,7 +307,6 @@ export default function Dashboard() {
     <section>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
         <h1 className="text-2xl font-bold">Contractor/Visitor details</h1>
-
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleRefresh}
@@ -260,20 +334,12 @@ export default function Dashboard() {
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th>
-              <Th>Company</Th>
-              <Th>Phone</Th>
-              <Th>Areas</Th>
-              <Th>Signed in</Th>
-              <Th>Fob #</Th>
-              <Th></Th>
+              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th></Th>
             </tr>
           </thead>
           <tbody>
             {awaiting.length === 0 && (
-              <tr>
-                <Td colSpan={7} className="text-center text-slate-500">None</Td>
-              </tr>
+              <tr><Td colSpan={7} className="text-center text-slate-500">None</Td></tr>
             )}
             {awaiting.map(i => (
               <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} />
@@ -288,23 +354,13 @@ export default function Dashboard() {
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th>
-              <Th>Company</Th>
-              <Th>Phone</Th>
-              <Th>Areas</Th>
-              <Th>Fob #</Th>
-              <Th>Signed in by</Th>
-              <Th>Fob returned</Th>
-              <Th>Sign-out requested</Th>
-              <Th></Th>
-              {isAdmin && <Th></Th>}
+              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Fob #</Th><Th>Signed in by</Th>
+              <Th>Fob returned</Th><Th>Sign-out requested</Th><Th></Th>{isAdmin && <Th></Th>}
             </tr>
           </thead>
           <tbody>
             {onSite.length === 0 && (
-              <tr>
-                <Td colSpan={isAdmin ? 10 : 9} className="text-center text-slate-500">None</Td>
-              </tr>
+              <tr><Td colSpan={isAdmin ? 10 : 9} className="text-center text-slate-500">None</Td></tr>
             )}
 
             {onSite.map(i => (
@@ -327,11 +383,7 @@ export default function Dashboard() {
                   <button
                     disabled={!i.fob_returned}
                     onClick={() => confirmSignOut(i.id)}
-                    className={`px-3 py-1 rounded ${
-                      i.fob_returned
-                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                        : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                    }`}
+                    className={`px-3 py-1 rounded ${i.fob_returned ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
                   >
                     Confirm sign-out
                   </button>
@@ -379,23 +431,13 @@ export default function Dashboard() {
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th>
-              <Th>Company</Th>
-              <Th>Phone</Th>
-              <Th>Areas</Th>
-              <Th>Fob #</Th>
-              <Th>Fob returned</Th>
-              <Th>Signed in</Th>
-              <Th>Signed out</Th>
-              <Th>Signed in by</Th>
-              <Th>Signed out by</Th>
+              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Fob #</Th><Th>Fob returned</Th>
+              <Th>Signed in</Th><Th>Signed out</Th><Th>Signed in by</Th><Th>Signed out by</Th>
             </tr>
           </thead>
           <tbody>
             {signedOut.length === 0 && (
-              <tr>
-                <Td colSpan={10} className="text-center text-slate-500">None</Td>
-              </tr>
+              <tr><Td colSpan={10} className="text-center text-slate-500">None</Td></tr>
             )}
             {signedOut.map(i => (
               <tr key={i.id} className="border-t">
@@ -421,80 +463,3 @@ export default function Dashboard() {
     </section>
   )
 }
-    })
-  })
-
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-      <div className="p-3 bg-white border rounded">
-        <div className="text-xs text-slate-500">Total on site</div>
-        <div className="text-2xl font-semibold">{total}</div>
-      </div>
-
-      {AREAS.map(a => (
-        <div key={a} className="p-3 bg-white border rounded">
-          <div className="text-xs text-slate-500">{a}</div>
-          <div className="text-xl font-semibold">{perArea[a]}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function formatDate(value) {
-  if (!value) return ''
-  try {
-    return new Date(value).toLocaleString()
-  } catch {
-    return String(value)
-  }
-}
-
-function shortEmail(email) {
-  if (!email) return ''
-  return String(email).split('@')[0]
-}
-
-function csvEscape(v) {
-  if (v === null || v === undefined) return ''
-  const s = String(v)
-
-  // No regex test here (keeps it robust) + use NL constant (no '\n' literal)
-  if (s.includes('"') || s.includes(',') || s.includes(NL)) {
-    return '"' + s.replace(/"/g, '""') + '"'
-  }
-  return s
-}
-
-function downloadCsv(filename, rows) {
-  if (!rows || rows.length === 0) return
-
-  const header = Object.keys(rows[0]).join(',')
-  const lines = rows.map(r => Object.values(r).map(csvEscape).join(','))
-
-  // Use NL constant to avoid editors inserting real line breaks into quoted strings
-  const csv = [header, ...lines].join(NL)
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-
-  URL.revokeObjectURL(url)
-}
-
-function Table({ children }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full">{children}</table>
-    </div>
-  )
-}
-
-function Th({ children }) {
-  return (
