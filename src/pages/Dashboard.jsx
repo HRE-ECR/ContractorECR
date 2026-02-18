@@ -34,6 +34,7 @@ function formatDate(value) {
 function csvEscape(v) {
   if (v === null || v === undefined) return ''
   const s = String(v)
+
   // Must stay on ONE LINE - otherwise esbuild thinks the regex is unterminated
   if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
   return s
