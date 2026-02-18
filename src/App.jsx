@@ -18,14 +18,7 @@ export default function App() {
           <Route path="/sign-in" element={<SignIn />} />
           <Route path="/sign-out" element={<SignOut />} />
           <Route path="/login" element={<TeamLogin />} />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
         <footer className="text-center text-xs text-slate-500 mt-6">

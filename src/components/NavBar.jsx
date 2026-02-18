@@ -18,7 +18,7 @@ export default function NavBar() {
     await supabase.auth.signOut()
   }
 
-  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
+  const isActive = (path) => location.pathname === path
   const linkClass = (path) =>
     `px-3 py-2 rounded-md text-sm font-medium ${isActive(path) ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-700'}`
 

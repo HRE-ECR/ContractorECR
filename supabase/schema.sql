@@ -1,7 +1,5 @@
--- Enable required extensions
 create extension if not exists pgcrypto;
 
--- Types for areas and status
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'area_type') then
@@ -12,7 +10,6 @@ begin
   end if;
 end $$;
 
--- Profiles table for roles
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text unique,
@@ -20,7 +17,6 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
--- Create profile on new user
 create or replace function public.handle_new_user() returns trigger as $$
 begin
   insert into public.profiles (id, email)
@@ -30,14 +26,11 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Make trigger idempotent
-
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Contractors/Visitors table
 create table if not exists public.contractors (
   id uuid primary key default gen_random_uuid(),
   first_name text not null,
@@ -60,18 +53,15 @@ create table if not exists public.contractors (
   updated_at timestamptz not null default now()
 );
 
--- If you are upgrading an existing table, these keep the script idempotent
 alter table public.contractors add column if not exists sign_in_confirmed_by uuid;
 alter table public.contractors add column if not exists sign_in_confirmed_by_email text;
 alter table public.contractors add column if not exists signed_out_by uuid;
 alter table public.contractors add column if not exists signed_out_by_email text;
 
--- Ensure at least one area selected (idempotent)
 do $$
 begin
   if not exists (
-    select 1
-    from pg_constraint
+    select 1 from pg_constraint
     where conname = 'contractors_at_least_one_area'
       and conrelid = 'public.contractors'::regclass
   ) then
@@ -81,7 +71,6 @@ begin
   end if;
 end $$;
 
--- Updated_at trigger
 create or replace function public.set_updated_at() returns trigger as $$
 begin
   new.updated_at = now();
@@ -94,12 +83,10 @@ create trigger set_timestamp
 before update on public.contractors
 for each row execute function public.set_updated_at();
 
--- Helpful indexes
 create index if not exists contractors_phone_open_idx on public.contractors (phone, signed_out_at);
 create index if not exists contractors_status_idx on public.contractors (status);
 create index if not exists contractors_signed_in_idx on public.contractors (signed_in_at desc);
 
--- Sign-out request function (publicly callable)
 create or replace function public.request_signout(p_first text, p_phone text)
 returns integer as $$
 declare
@@ -119,76 +106,35 @@ $$ language plpgsql security definer set search_path = public;
 revoke all on function public.request_signout(text, text) from public;
 grant execute on function public.request_signout(text, text) to anon, authenticated;
 
--- Role helper functions for RLS
 create or replace function public.is_admin() returns boolean as $$
-  select exists (
-    select 1 from public.profiles where id = auth.uid() and role = 'admin'
-  );
+  select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin');
 $$ language sql stable;
 
 create or replace function public.is_teamleader() returns boolean as $$
-  select exists (
-    select 1 from public.profiles where id = auth.uid() and role in ('teamleader','admin')
-  );
+  select exists (select 1 from public.profiles where id = auth.uid() and role in ('teamleader','admin'));
 $$ language sql stable;
 
--- Row Level Security
 alter table public.contractors enable row level security;
 alter table public.profiles enable row level security;
 
--- Policies
-
 drop policy if exists "Profiles are viewable by owners" on public.profiles;
-create policy "Profiles are viewable by owners"
-on public.profiles
-for select
-to authenticated
-using (id = auth.uid());
+create policy "Profiles are viewable by owners" on public.profiles for select to authenticated using (id = auth.uid());
 
 drop policy if exists "Admins can view all profiles" on public.profiles;
-create policy "Admins can view all profiles"
-on public.profiles
-for select
-to authenticated
-using (public.is_admin());
-
--- Anyone (anon) can insert a contractor sign-in request
+create policy "Admins can view all profiles" on public.profiles for select to authenticated using (public.is_admin());
 
 drop policy if exists "Public can insert contractor sign-in" on public.contractors;
-create policy "Public can insert contractor sign-in"
-on public.contractors
-for insert
-to anon
-with check (true);
-
--- Team leaders can read all
+create policy "Public can insert contractor sign-in" on public.contractors for insert to anon with check (true);
 
 drop policy if exists "Teamleaders can read contractors" on public.contractors;
-create policy "Teamleaders can read contractors"
-on public.contractors
-for select
-to authenticated
-using (public.is_teamleader());
-
--- Team leaders can update
+create policy "Teamleaders can read contractors" on public.contractors for select to authenticated using (public.is_teamleader());
 
 drop policy if exists "Teamleaders can update contractors" on public.contractors;
-create policy "Teamleaders can update contractors"
-on public.contractors
-for update
-to authenticated
-using (public.is_teamleader());
-
--- Only admins can delete
+create policy "Teamleaders can update contractors" on public.contractors for update to authenticated using (public.is_teamleader());
 
 drop policy if exists "Admins can delete contractors" on public.contractors;
-create policy "Admins can delete contractors"
-on public.contractors
-for delete
-to authenticated
-using (public.is_admin());
+create policy "Admins can delete contractors" on public.contractors for delete to authenticated using (public.is_admin());
 
--- Cleanup function
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 7)
 returns void as $$
 begin
@@ -198,23 +144,3 @@ end;
 $$ language plpgsql security definer;
 
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
-
--- Optional schedule using pg_cron
-DO $do$
-BEGIN
-  BEGIN
-    EXECUTE 'create extension if not exists pg_cron';
-  EXCEPTION WHEN others THEN
-    NULL;
-  END;
-
-  IF EXISTS (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') THEN
-    BEGIN
-      EXECUTE 'select cron.unschedule(jobid) from cron.job where jobname = ''sp_cleanup_old_contractor_data''';
-      EXECUTE 'select cron.schedule(''sp_cleanup_old_contractor_data'', ''0 3 * * *'', ''select public.cleanup_old_contractor_data(7);'')';
-    EXCEPTION WHEN others THEN
-      NULL;
-    END;
-  END IF;
-END
-$do$;
