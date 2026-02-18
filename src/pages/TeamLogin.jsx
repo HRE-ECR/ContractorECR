@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient'
 
 export default function TeamLogin() {
   const navigate = useNavigate()
-  const [mode, setMode] = React.useState('signin') // 'signin' or 'signup'
+  const [mode, setMode] = React.useState('signin')
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [loading, setLoading] = React.useState(false)

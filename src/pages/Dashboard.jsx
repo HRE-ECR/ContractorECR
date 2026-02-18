@@ -88,7 +88,6 @@ export default function Dashboard() {
       setIsAdmin(admin)
     }
 
-    // Pull latest rows (cleanup keeps to 7 days)
     const { data, error } = await supabase
       .from('contractors')
       .select('*')

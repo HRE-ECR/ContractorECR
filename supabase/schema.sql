@@ -170,7 +170,7 @@ for select
 to authenticated
 using (public.is_teamleader());
 
--- Team leaders can update (confirm sign-in/out, fob status)
+-- Team leaders can update
 
 drop policy if exists "Teamleaders can update contractors" on public.contractors;
 create policy "Teamleaders can update contractors"
@@ -179,7 +179,7 @@ for update
 to authenticated
 using (public.is_teamleader());
 
--- Only admins can delete rows
+-- Only admins can delete
 
 drop policy if exists "Admins can delete contractors" on public.contractors;
 create policy "Admins can delete contractors"
@@ -188,7 +188,7 @@ for delete
 to authenticated
 using (public.is_admin());
 
--- Cleanup function to delete old data
+-- Cleanup function
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 7)
 returns void as $$
 begin
@@ -199,7 +199,7 @@ $$ language plpgsql security definer;
 
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
 
--- Optional: schedule daily cleanup at 03:00 using pg_cron if available
+-- Optional schedule using pg_cron
 DO $do$
 BEGIN
   BEGIN

@@ -30,10 +30,7 @@ export default function NavBar() {
           <Link className={linkClass('/')} to="/">Home</Link>
           <Link className={linkClass('/sign-in')} to="/sign-in">Sign-in</Link>
           <Link className={linkClass('/sign-out')} to="/sign-out">Sign-out</Link>
-
-          {/* Hide Dashboard unless logged in */}
           {user && <Link className={linkClass('/dashboard')} to="/dashboard">Dashboard</Link>}
-
           {user ? (
             <button onClick={handleSignOut} className="ml-2 px-3 py-2 text-sm bg-red-600 hover:bg-red-700 rounded">Logout</button>
           ) : (
