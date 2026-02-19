@@ -1,7 +1,16 @@
 import React from 'react'
 import { supabase } from '../supabaseClient'
 
-const AREAS = ['M1', 'M2', 'Insp', '1CL', '2CL', '3CL', '4CL']
+const AREAS = [
+  'Maint-1',
+  'Maint-2',
+  'Insp-shed',
+  'Rep-Shed',
+  '1-Clean',
+  '2-Clean',
+  '3-Clean',
+  '4-Clean',
+]
 
 export default function SignIn() {
   const [form, setForm] = React.useState({
@@ -12,10 +21,10 @@ export default function SignIn() {
     areas: [],
   })
 
-  // "Other" box behaviour:
-  // - Shows "Other" as text inside the box initially
-  // - Clears when clicked/focused
-  // - Restores "Other" if left empty on blur
+  // "Other" textbox behaviour:
+  // - shows "Other" text in the box initially
+  // - clears on focus
+  // - restores on blur if left empty
   const [otherArea, setOtherArea] = React.useState('Other')
 
   const [loading, setLoading] = React.useState(false)
@@ -23,7 +32,7 @@ export default function SignIn() {
   const [error, setError] = React.useState('')
 
   function toggleArea(a) {
-    setForm((f) => {
+    setForm(f => {
       const exists = f.areas.includes(a)
       return { ...f, areas: exists ? f.areas.filter(x => x !== a) : [...f.areas, a] }
     })
@@ -43,13 +52,11 @@ export default function SignIn() {
     const otherVal = getOtherValue()
     const pickedAreas = [...(form.areas || [])]
 
-    // If user entered an "Other" value, store it as "Other: <value>"
     if (otherVal) {
       const otherLabel = `Other: ${otherVal}`
       if (!pickedAreas.includes(otherLabel)) pickedAreas.push(otherLabel)
     }
 
-    // Validation: require at least one checkbox OR a valid Other value
     if (!form.first_name || !form.surname || !form.company || !form.phone || pickedAreas.length === 0) {
       setError('All fields are mandatory and at least one Area of work must be selected (or enter an Other area).')
       return
@@ -61,14 +68,13 @@ export default function SignIn() {
       surname: form.surname.trim(),
       company: form.company.trim(),
       phone: form.phone.trim(),
-      areas: pickedAreas, // ✅ now supports text[] (includes Other)
+      areas: pickedAreas,
       status: 'pending',
     })
     setLoading(false)
 
-    if (err) {
-      setError(err.message)
-    } else {
+    if (err) setError(err.message)
+    else {
       setMessage('Signed-in request recorded. Please see a Team Leader to receive a visitor fob.')
       setForm({ first_name: '', surname: '', company: '', phone: '', areas: [] })
       setOtherArea('Other')
@@ -124,11 +130,9 @@ export default function SignIn() {
         </div>
 
         <div>
-          <label className="block text-sm text-slate-600 mb-1">
-            Area of work (select one or more)
-          </label>
+          <label className="block text-sm text-slate-600 mb-1">Area of work (select one or more)</label>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {AREAS.map(a => (
               <label
                 key={a}
@@ -146,26 +150,21 @@ export default function SignIn() {
             ))}
           </div>
 
-          {/* Other field */}
           <div className="mt-3">
-            <label className="block text-sm text-slate-600 mb-1">
-              Other (if not listed)
-            </label>
+            <label className="block text-sm text-slate-600 mb-1">Other (if not listed)</label>
             <input
               className="w-full border rounded p-2 bg-slate-50 focus:bg-white"
               value={otherArea}
               onChange={e => setOtherArea(e.target.value)}
               onFocus={() => {
-                // "Other" disappears when clicked
                 if ((otherArea || '').trim().toLowerCase() === 'other') setOtherArea('')
               }}
               onBlur={() => {
-                // Restore "Other" if left empty
                 if (!otherArea || otherArea.trim() === '') setOtherArea('Other')
               }}
             />
             <p className="text-xs text-slate-500 mt-1">
-              If you type an area here, it will be saved as <span className="font-mono">Other: your text</span>.
+              If used, it will be saved as <span className="font-mono">Other: your text</span>.
             </p>
           </div>
         </div>
@@ -173,10 +172,7 @@ export default function SignIn() {
         {error && <p className="text-red-600">{error}</p>}
         {message && <p className="text-green-700">{message}</p>}
 
-        <button
-          disabled={loading}
-          className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50"
-        >
+        <button disabled={loading} className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50">
           {loading ? 'Submitting...' : 'Sign-in'}
         </button>
       </form>
