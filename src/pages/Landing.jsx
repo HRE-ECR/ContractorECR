@@ -64,7 +64,7 @@ export default function Landing() {
       </div>
 
       <div className="text-xs text-slate-500 pt-2">
-        Please sign in, your First name and Phone number will be your uniquie identifier.
+        Please sign in, your First name and Phone number will be your unique identifier.
       </div>
     </section>
   )
