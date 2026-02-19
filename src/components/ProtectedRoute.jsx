@@ -34,13 +34,8 @@ export default function ProtectedRoute({ children }) {
 
       if (!mounted) return
 
-      if (profErr) {
-        setError(profErr.message)
-        setRole(null)
-      } else {
-        setRole(prof?.role || null)
-      }
-
+      if (profErr) setError(profErr.message)
+      setRole(prof?.role || null)
       setLoading(false)
     }
 
@@ -56,17 +51,11 @@ export default function ProtectedRoute({ children }) {
   if (loading) return <div className="p-6">Loading...</div>
   if (!session) return <Navigate to="/login" />
 
-  const normalizedRole = (role || '').toLowerCase()
-  const isApproved = normalizedRole === 'teamleader' || normalizedRole === 'admin'
-
-  if (!isApproved) {
+  if (role === 'New_Teamleader') {
     return (
       <div className="max-w-xl mx-auto bg-white border rounded p-5">
         <h1 className="text-xl font-bold mb-2">Account awaiting approval</h1>
         <p className="text-slate-700">Please contact Admin for team leader account approval.</p>
-        {role && (
-          <p className="text-xs text-slate-500 mt-2">Current role: <span className="font-mono">{role}</span></p>
-        )}
         {error && <p className="text-red-600 mt-3">{error}</p>}
         <div className="mt-4 flex gap-2">
           <button onClick={logout} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Logout</button>
