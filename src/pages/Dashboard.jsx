@@ -2,8 +2,6 @@ import React from 'react'
 import { supabase } from '../supabaseClient'
 
 const AREAS = ['M1', 'M2', 'Insp', '1CL', '2CL', '3CL', '4CL']
-
-// Avoid writing '\n' directly in strings (some editors/Teams inject real line breaks)
 const NL = String.fromCharCode(10)
 
 function Summary({ items }) {
@@ -39,11 +37,7 @@ function Summary({ items }) {
 
 function formatDate(value) {
   if (!value) return ''
-  try {
-    return new Date(value).toLocaleString()
-  } catch {
-    return String(value)
-  }
+  try { return new Date(value).toLocaleString() } catch { return String(value) }
 }
 
 function shortEmail(email) {
@@ -54,8 +48,6 @@ function shortEmail(email) {
 function csvEscape(v) {
   if (v === null || v === undefined) return ''
   const s = String(v)
-
-  // No regex here (prevents regex literal line-split build failures)
   if (s.includes('"') || s.includes(',') || s.includes(NL)) {
     return '"' + s.replace(/"/g, '""') + '"'
   }
@@ -64,21 +56,18 @@ function csvEscape(v) {
 
 function downloadCsv(filename, rows) {
   if (!rows || rows.length === 0) return
-
   const header = Object.keys(rows[0]).join(',')
   const lines = rows.map(r => Object.values(r).map(csvEscape).join(','))
   const csv = [header, ...lines].join(NL)
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
-
   const a = document.createElement('a')
   a.href = url
   a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
-
   URL.revokeObjectURL(url)
 }
 
@@ -92,17 +81,13 @@ function Table({ children }) {
 
 function Th({ children }) {
   return (
-    <th className="text-left text-xs uppercase tracking-wider text-slate-500 px-4 py-2">
-      {children}
-    </th>
+    <th className="text-left text-xs uppercase tracking-wider text-slate-500 px-4 py-2">{children}</th>
   )
 }
 
 function Td({ children, className = '', ...rest }) {
   return (
-    <td {...rest} className={`px-4 py-2 align-middle ${className}`}>
-      {children}
-    </td>
+    <td {...rest} className={`px-4 py-2 align-middle ${className}`}>{children}</td>
   )
 }
 
@@ -117,18 +102,10 @@ function AwaitingRow({ item, onConfirm }) {
       <Td>{(item.areas || []).join(', ')}</Td>
       <Td>{formatDate(item.signed_in_at)}</Td>
       <Td>
-        <input
-          className="border rounded p-1 w-32"
-          placeholder="Enter fob #"
-          value={fob}
-          onChange={e => setFob(e.target.value)}
-        />
+        <input className="border rounded p-1 w-32" placeholder="Enter fob #" value={fob} onChange={e => setFob(e.target.value)} />
       </Td>
       <Td>
-        <button
-          onClick={() => onConfirm(item.id, fob)}
-          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-        >
+        <button onClick={() => onConfirm(item.id, fob)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
           Confirm sign-in
         </button>
       </Td>
@@ -144,9 +121,6 @@ export default function Dashboard() {
   const [error, setError] = React.useState('')
   const [signedOutLimit, setSignedOutLimit] = React.useState(10)
 
-  // ✅ Rule engine:
-  // - Admin: can confirm sign-out if FOB returned is true
-  // - Teamleader: can confirm sign-out only if FOB returned is true AND sign-out requested is true
   function canConfirmSignOut(item) {
     if (!item) return false
     if (!item.fob_returned) return false
@@ -157,7 +131,7 @@ export default function Dashboard() {
   function signOutDisabledReason(item) {
     if (!item) return 'Unavailable'
     if (!item.fob_returned) return 'Fob must be returned first'
-    if (isAdmin) return '' // admin can proceed once fob returned
+    if (isAdmin) return ''
     if (!item.signout_requested) return 'Sign-out must be requested first'
     return ''
   }
@@ -170,22 +144,12 @@ export default function Dashboard() {
 
     let admin = false
     if (uid) {
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', uid)
-        .single()
-
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', uid).single()
       admin = (prof?.role === 'admin')
       setIsAdmin(admin)
     }
 
-    const { data, error } = await supabase
-      .from('contractors')
-      .select('*')
-      .order('signed_in_at', { ascending: false })
-      .limit(500)
-
+    const { data, error } = await supabase.from('contractors').select('*').order('signed_in_at', { ascending: false }).limit(500)
     if (error) setError(error.message)
     setItems(data || [])
   }
@@ -211,24 +175,19 @@ export default function Dashboard() {
     const uid = userData.user?.id || null
     const email = userData.user?.email || null
 
-    const { error } = await supabase
-      .from('contractors')
-      .update({
-        fob_number: fob,
-        status: 'confirmed',
-        sign_in_confirmed_at: new Date().toISOString(),
-        sign_in_confirmed_by: uid,
-        sign_in_confirmed_by_email: email,
-      })
-      .eq('id', itemId)
+    const { error } = await supabase.from('contractors').update({
+      fob_number: fob,
+      status: 'confirmed',
+      sign_in_confirmed_at: new Date().toISOString(),
+      sign_in_confirmed_by: uid,
+      sign_in_confirmed_by_email: email,
+    }).eq('id', itemId)
 
     if (error) alert(error.message)
     else load()
   }
 
-  // ✅ Now takes the full item so we can validate current flags
   async function confirmSignOut(item) {
-    // Guard even if someone tries to trigger it manually
     if (!canConfirmSignOut(item)) {
       const msg = signOutDisabledReason(item) || 'Not allowed'
       alert(`Cannot confirm sign-out: ${msg}`)
@@ -239,33 +198,22 @@ export default function Dashboard() {
     const uid = userData.user?.id || null
     const email = userData.user?.email || null
 
-    const { error } = await supabase
-      .from('contractors')
-      .update({
-        status: 'signed_out',
-        signed_out_at: new Date().toISOString(),
-        signed_out_by: uid,
-        signed_out_by_email: email,
-      })
-      .eq('id', item.id)
+    const { error } = await supabase.from('contractors').update({
+      status: 'signed_out',
+      signed_out_at: new Date().toISOString(),
+      signed_out_by: uid,
+      signed_out_by_email: email,
+    }).eq('id', item.id)
 
     if (error) alert(error.message)
     else load()
   }
 
-  // ✅ Fix: checkbox updates instantly (optimistic UI), and reverts on error
   async function setFobReturned(itemId, value) {
     const prevItems = items
+    setItems(curr => curr.map(i => (i.id === itemId ? { ...i, fob_returned: value } : i)))
 
-    setItems(curr =>
-      curr.map(i => (i.id === itemId ? { ...i, fob_returned: value } : i))
-    )
-
-    const { error } = await supabase
-      .from('contractors')
-      .update({ fob_returned: value })
-      .eq('id', itemId)
-
+    const { error } = await supabase.from('contractors').update({ fob_returned: value }).eq('id', itemId)
     if (error) {
       setItems(prevItems)
       alert(error.message)
@@ -276,11 +224,7 @@ export default function Dashboard() {
     if (!isAdmin) return
     if (!confirm('Delete this record? This cannot be undone.')) return
 
-    const { error } = await supabase
-      .from('contractors')
-      .delete()
-      .eq('id', itemId)
-
+    const { error } = await supabase.from('contractors').delete().eq('id', itemId)
     if (error) alert(error.message)
     else load()
   }
@@ -290,9 +234,7 @@ export default function Dashboard() {
     const onSite = items.filter(i => i.status === 'confirmed' && !i.signed_out_at)
 
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-    const signedOut = items
-      .filter(i => i.signed_out_at)
-      .filter(i => new Date(i.signed_out_at).getTime() >= sevenDaysAgo)
+    const signedOut = items.filter(i => i.signed_out_at).filter(i => new Date(i.signed_out_at).getTime() >= sevenDaysAgo)
 
     const toRow = (i, tableName) => ({
       table: tableName,
@@ -313,14 +255,11 @@ export default function Dashboard() {
       signed_out_by: shortEmail(i.signed_out_by_email || ''),
     })
 
-    const rows = [
-      ...awaiting.map(i => toRow(i, 'awaiting_confirmation')),
+    const rows = [...awaiting.map(i => toRow(i, 'awaiting_confirmation')),
       ...onSite.map(i => toRow(i, 'on_site')),
-      ...signedOut.map(i => toRow(i, 'signed_out')),
-    ]
+      ...signedOut.map(i => toRow(i, 'signed_out'))]
 
     if (rows.length === 0) return alert('No data to export')
-
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
     downloadCsv(`contractors_export_${stamp}.csv`, rows)
   }
@@ -343,80 +282,42 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
         <h1 className="text-2xl font-bold">Contractor/Visitor details</h1>
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="px-4 py-2 bg-slate-200 rounded hover:bg-slate-300"
-          >
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-
-          <button
-            onClick={exportAllTables}
-            className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800"
-          >
-            Export all tables (CSV)
-          </button>
+          <button onClick={handleRefresh} disabled={refreshing} className="px-4 py-2 bg-slate-200 rounded hover:bg-slate-300">{refreshing ? 'Refreshing...' : 'Refresh'}</button>
+          <button onClick={exportAllTables} className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800">Export all tables (CSV)</button>
         </div>
       </div>
 
       {error && <p className="text-red-600 mb-2">{error}</p>}
       <Summary items={items} />
 
-      {/* Awaiting confirmation */}
       <div className="bg-white border rounded mb-6">
         <div className="px-4 py-2 border-b bg-slate-50 font-semibold">Awaiting confirmation</div>
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th>
-              <Th>Company</Th>
-              <Th>Phone</Th>
-              <Th>Areas</Th>
-              <Th>Signed in</Th>
-              <Th>Fob #</Th>
-              <Th></Th>
+              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th></Th>
             </tr>
           </thead>
           <tbody>
-            {awaiting.length === 0 && (
-              <tr><Td colSpan={7} className="text-center text-slate-500">None</Td></tr>
-            )}
-            {awaiting.map(i => (
-              <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} />
-            ))}
+            {awaiting.length === 0 && <tr><Td colSpan={7} className="text-center text-slate-500">None</Td></tr>}
+            {awaiting.map(i => <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} />)}
           </tbody>
         </Table>
       </div>
 
-      {/* On site */}
       <div className="bg-white border rounded mb-6">
         <div className="px-4 py-2 border-b bg-slate-50 font-semibold">On site</div>
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th>
-              <Th>Company</Th>
-              <Th>Phone</Th>
-              <Th>Areas</Th>
-              <Th>Signed in</Th>
-              <Th>Fob #</Th>
-              <Th>Signed in by</Th>
-              <Th>Fob returned</Th>
-              <Th>Sign-out requested</Th>
-              <Th></Th>
-              {isAdmin && <Th></Th>}
+              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th>Signed in by</Th><Th>Fob returned</Th><Th>Sign-out requested</Th><Th></Th>{isAdmin && <Th></Th>}
             </tr>
           </thead>
           <tbody>
-            {onSite.length === 0 && (
-              <tr><Td colSpan={isAdmin ? 11 : 10} className="text-center text-slate-500">None</Td></tr>
-            )}
-
+            {onSite.length === 0 && <tr><Td colSpan={isAdmin ? 11 : 10} className="text-center text-slate-500">None</Td></tr>}
             {onSite.map(i => {
               const canSignOut = canConfirmSignOut(i)
               const reason = signOutDisabledReason(i)
-
               return (
                 <tr key={i.id} className="border-t">
                   <Td>{i.first_name} {i.surname}</Td>
@@ -426,38 +327,15 @@ export default function Dashboard() {
                   <Td>{formatDate(i.signed_in_at)}</Td>
                   <Td>{i.fob_number || <span className="text-slate-400">-</span>}</Td>
                   <Td>{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}</Td>
-                  <Td>
-                    <input
-                      type="checkbox"
-                      checked={!!i.fob_returned}
-                      onChange={e => setFobReturned(i.id, e.target.checked)}
-                    />
-                  </Td>
+                  <Td><input type="checkbox" checked={!!i.fob_returned} onChange={e => setFobReturned(i.id, e.target.checked)} /></Td>
                   <Td>{i.signout_requested ? 'Yes' : 'No'}</Td>
                   <Td>
-                    <button
-                      disabled={!canSignOut}
-                      title={!canSignOut ? reason : 'Confirm sign-out'}
-                      onClick={() => confirmSignOut(i)}
-                      className={`px-3 py-1 rounded ${
-                        canSignOut
-                          ? 'bg-green-600 hover:bg-green-700 text-white'
-                          : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                      }`}
-                    >
+                    <button disabled={!canSignOut} title={!canSignOut ? reason : 'Confirm sign-out'} onClick={() => confirmSignOut(i)}
+                      className={`px-3 py-1 rounded ${canSignOut ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}>
                       Confirm sign-out
                     </button>
                   </Td>
-                  {isAdmin && (
-                    <Td>
-                      <button
-                        onClick={() => remove(i.id)}
-                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
-                      >
-                        Delete
-                      </button>
-                    </Td>
-                  )}
+                  {isAdmin && <Td><button onClick={() => remove(i.id)} className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded">Delete</button></Td>}
                 </tr>
               )
             })}
@@ -465,49 +343,26 @@ export default function Dashboard() {
         </Table>
       </div>
 
-      {/* Signed out */}
       <div className="bg-white border rounded">
         <div className="px-4 py-2 border-b bg-slate-50 font-semibold flex items-center justify-between">
           <span>Signed out (last {signedOutLimit})</span>
           <div className="flex gap-2">
             {signedOutLimit === 10 && signedOutAll.length > 10 && (
-              <button
-                onClick={() => setSignedOutLimit(30)}
-                className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
-              >
-                Show more
-              </button>
+              <button onClick={() => setSignedOutLimit(30)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">Show more</button>
             )}
             {signedOutLimit === 30 && (
-              <button
-                onClick={() => setSignedOutLimit(10)}
-                className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300"
-              >
-                Show less
-              </button>
+              <button onClick={() => setSignedOutLimit(10)} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">Show less</button>
             )}
           </div>
         </div>
-
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th>
-              <Th>Company</Th>
-              <Th>Phone</Th>
-              <Th>Areas</Th>
-              <Th>Fob #</Th>
-              <Th>Fob returned</Th>
-              <Th>Signed in</Th>
-              <Th>Signed out</Th>
-              <Th>Signed in by</Th>
-              <Th>Signed out by</Th>
+              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Fob #</Th><Th>Fob returned</Th><Th>Signed in</Th><Th>Signed out</Th><Th>Signed in by</Th><Th>Signed out by</Th>
             </tr>
           </thead>
           <tbody>
-            {signedOut.length === 0 && (
-              <tr><Td colSpan={10} className="text-center text-slate-500">None</Td></tr>
-            )}
+            {signedOut.length === 0 && <tr><Td colSpan={10} className="text-center text-slate-500">None</Td></tr>}
             {signedOut.map(i => (
               <tr key={i.id} className="border-t">
                 <Td>{i.first_name} {i.surname}</Td>
@@ -526,9 +381,7 @@ export default function Dashboard() {
         </Table>
       </div>
 
-      <p className="text-xs text-slate-500 mt-3">
-        Signed-out records are kept for up to 7 days and then automatically removed.
-      </p>
+      <p className="text-xs text-slate-500 mt-3">Signed-out records are kept for up to 7 days and then automatically removed.</p>
     </section>
   )
 }

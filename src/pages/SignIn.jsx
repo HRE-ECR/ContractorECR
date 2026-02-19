@@ -18,7 +18,8 @@ export default function SignIn() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setError(''); setMessage('')
+    setError('')
+    setMessage('')
 
     if (!form.first_name || !form.surname || !form.company || !form.phone || form.areas.length === 0) {
       setError('All fields are mandatory and at least one Area of work must be selected.')

@@ -10,7 +10,8 @@ export default function SignOut() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setError(''); setMessage('')
+    setError('')
+    setMessage('')
 
     if (!first_name || !phone) {
       setError('Please enter your first name and phone number.')
@@ -25,7 +26,8 @@ export default function SignOut() {
     else if (!data) setMessage('No active sign-in found for those details.')
     else setMessage('Sign-out request submitted. A Team Leader will confirm shortly.')
 
-    setFirst(''); setPhone('')
+    setFirst('')
+    setPhone('')
   }
 
   return (
@@ -40,8 +42,10 @@ export default function SignOut() {
           <label className="block text-sm text-slate-600">Phone number</label>
           <input className="mt-1 w-full border rounded p-2" inputMode="tel" value={phone} onChange={e=>setPhone(e.target.value)} required />
         </div>
+
         {error && <p className="text-red-600">{error}</p>}
         {message && <p className="text-green-700">{message}</p>}
+
         <button disabled={loading} className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50">
           {loading ? 'Submitting...' : 'Submit sign-out request'}
         </button>
