@@ -20,12 +20,50 @@ function Summary({ items }) {
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-      || rows.length === 0) return      <div className="p-3 bg-white border rounded">
+      <div className="p-3 bg-white border rounded">
+        <div className="text-xs text-slate-500">Total on site</div>
+        <div className="text-2xl font-semibold">{total}</div>
+      </div>
+
+      {AREAS.map(a => (
+        <div key={a} className="p-3 bg-white border rounded">
+          <div className="text-xs text-slate-500">{a}</div>
+          <div className="text-xl font-semibold">{perArea[a]}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function formatDate(value) {
+  if (!value) return ''
+  try { return new Date(value).toLocaleString() } catch { return String(value) }
+}
+
+function shortEmail(email) {
+  if (!email) return ''
+  return String(email).split('@')[0]
+}
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return ''
+  const s = String(v)
+  if (s.includes('"') || s.includes(',') || s.includes(NL)) {
+    return '"' + s.replace(/"/g, '""') + '"'
+  }
+  return s
+}
+
+function downloadCsv(filename, rows) {
+  if (!rows || rows.length === 0) return
+
   const header = Object.keys(rows[0]).join(',')
   const lines = rows.map(r => Object.values(r).map(csvEscape).join(','))
   const csv = [header, ...lines].join(NL)
 
+  // ✅ This line is correct JS. If your build errored here, the file above it was malformed.
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -113,7 +151,7 @@ export default function Dashboard() {
     return ''
   }
 
-  // Keep a stable reference so Realtime callback can call the latest load()
+  // keep latest load() available to realtime callback
   const loadRef = React.useRef(null)
 
   async function load() {
@@ -144,12 +182,10 @@ export default function Dashboard() {
     setItems(data || [])
   }
 
-  // keep ref updated
   React.useEffect(() => {
     loadRef.current = load
   })
 
-  // initial load
   React.useEffect(() => {
     ;(async () => {
       setLoading(true)
@@ -159,8 +195,7 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ✅ Realtime subscription: refresh dashboard whenever contractors table changes
-  // Supabase Postgres Changes subscription pattern (INSERT/UPDATE/DELETE). [1](https://www.youtube.com/watch?v=nn1z1jnz8x8)
+  // ✅ Realtime auto-refresh (Option 1): whenever contractors changes, call load()
   React.useEffect(() => {
     let debounceTimer = null
 
@@ -170,7 +205,6 @@ export default function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'contractors' },
         () => {
-          // debounce bursts of changes into one refresh
           if (debounceTimer) clearTimeout(debounceTimer)
           debounceTimer = setTimeout(() => {
             if (loadRef.current) loadRef.current()
@@ -474,37 +508,3 @@ export default function Dashboard() {
     </section>
   )
 }
-        <div className="text-xs text-slate-500">Total on site</div>
-        <div className="text-2xl font-semibold">{total}</div>
-      </div>
-
-      {AREAS.map(a => (
-        <div key={a} className="p-3 bg-white border rounded">
-          <div className="text-xs text-slate-500">{a}</div>
-          <div className="text-xl font-semibold">{perArea[a]}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function formatDate(value) {
-  if (!value) return ''
-  try { return new Date(value).toLocaleString() } catch { return String(value) }
-}
-
-function shortEmail(email) {
-  if (!email) return ''
-  return String(email).split('@')[0]
-}
-
-function csvEscape(v) {
-  if (v === null || v === undefined) return ''
-  const s = String(v)
-  if (s.includes('"') || s.includes(',') || s.includes(NL)) {
-    return '"' + s.replace(/"/g, '""') + '"'
-  }
-  return s
-}
-
-function downloadCsv(filename, rows) {
