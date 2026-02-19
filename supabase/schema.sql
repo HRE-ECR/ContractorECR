@@ -1,13 +1,9 @@
 -- Extensions
 create extension if not exists pgcrypto;
 
--- Enum types
+-- Enum types (area_type removed because areas now uses text[])
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'area_type') THEN
-    CREATE TYPE area_type AS ENUM ('M1','M2','Insp','1CL','2CL','3CL','4CL');
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_type') THEN
     CREATE TYPE status_type AS ENUM ('pending','confirmed','signed_out');
   END IF;
@@ -46,14 +42,14 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Contractors table
+-- Contractors table (areas now text[])
 create table if not exists public.contractors (
   id uuid primary key default gen_random_uuid(),
   first_name text not null,
   surname text not null,
   company text not null,
   phone text not null,
-  areas area_type[] not null,
+  areas text[] not null,
   status status_type not null default 'pending',
   fob_number text,
   fob_returned boolean not null default false,
@@ -69,6 +65,23 @@ create table if not exists public.contractors (
   updated_at timestamptz not null default now()
 );
 
+-- If you already had areas as area_type[] (enum array), convert it to text[] safely
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'contractors'
+      AND column_name = 'areas'
+      AND udt_name = '_area_type'
+  ) THEN
+    ALTER TABLE public.contractors
+      ALTER COLUMN areas TYPE text[]
+      USING (areas::text[]);
+  END IF;
+END $$;
+
 -- idempotent alter for audit columns
 alter table public.contractors add column if not exists sign_in_confirmed_by uuid;
 alter table public.contractors add column if not exists sign_in_confirmed_by_email text;
@@ -79,7 +92,8 @@ alter table public.contractors add column if not exists signed_out_by_email text
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
+    SELECT 1
+    FROM pg_constraint
     WHERE conname = 'contractors_at_least_one_area'
       AND conrelid = 'public.contractors'::regclass
   ) THEN
@@ -206,8 +220,7 @@ grant execute on function public.cleanup_old_contractor_data(integer) to service
 
 --------------------------------------------------------------------------------
 -- Realtime (Postgres Changes) for Dashboard auto-refresh
--- Required: add contractors table to supabase_realtime publication
--- (idempotent check to avoid "already a member" errors) [1](https://www.youtube.com/watch?v=nn1z1jnz8x8)
+-- Required: add contractors table to supabase_realtime publication [1](https://www.youtube.com/watch?v=nn1z1jnz8x8)
 --------------------------------------------------------------------------------
 DO $$
 BEGIN
@@ -225,5 +238,5 @@ BEGIN
   END IF;
 END $$;
 
--- Recommended: better UPDATE payloads for realtime listeners [2](blob:https://outlook.office.com/1a150364-4a85-4951-8b25-731ad8a515ea)[3](blob:https://outlook.office.com/ca8336a9-2e51-482f-9040-e06a6a9b78f1)
+-- Recommended: improves UPDATE payloads for realtime listeners [3](blob:https://outlook.office.com/1a150364-4a85-4951-8b25-731ad8a515ea)[2](blob:https://outlook.office.com/ca8336a9-2e51-482f-9040-e06a6a9b78f1)
 alter table public.contractors replica identity full;
