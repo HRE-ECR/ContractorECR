@@ -50,7 +50,7 @@ export default function SignIn() {
       <form onSubmit={handleSubmit} className="space-y-4 bg-white p-4 rounded border border-slate-200">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-slate-600">First name</label>
+            <label className="block text-sm text-slate-600">First name(unique identifier)</label>
             <input className="mt-1 w-full border rounded p-2" value={form.first_name} onChange={e=>setForm({ ...form, first_name: e.target.value })} required />
           </div>
           <div>
@@ -62,7 +62,7 @@ export default function SignIn() {
             <input className="mt-1 w-full border rounded p-2" value={form.company} onChange={e=>setForm({ ...form, company: e.target.value })} required />
           </div>
           <div>
-            <label className="block text-sm text-slate-600">Phone number</label>
+            <label className="block text-sm text-slate-600">Phone number(unique identifier)</label>
             <input className="mt-1 w-full border rounded p-2" inputMode="tel" value={form.phone} onChange={e=>setForm({ ...form, phone: e.target.value })} required />
           </div>
         </div>
