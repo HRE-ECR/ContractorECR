@@ -7,6 +7,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'area_type') THEN
     CREATE TYPE area_type AS ENUM ('M1','M2','Insp','1CL','2CL','3CL','4CL');
   END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_type') THEN
     CREATE TYPE status_type AS ENUM ('pending','confirmed','signed_out');
   END IF;
@@ -161,7 +162,6 @@ using (public.is_admin());
 
 -- Contractors policies
 -- Anyone can insert sign-in requests
-
 drop policy if exists "Public can insert contractor sign-in" on public.contractors;
 create policy "Public can insert contractor sign-in"
 on public.contractors
@@ -203,3 +203,27 @@ end;
 $$ language plpgsql security definer;
 
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
+
+--------------------------------------------------------------------------------
+-- Realtime (Postgres Changes) for Dashboard auto-refresh
+-- Required: add contractors table to supabase_realtime publication
+-- (idempotent check to avoid "already a member" errors) [1](https://www.youtube.com/watch?v=nn1z1jnz8x8)
+--------------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication p
+    JOIN pg_publication_rel pr ON pr.prpubid = p.oid
+    JOIN pg_class c ON c.oid = pr.prrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE p.pubname = 'supabase_realtime'
+      AND n.nspname = 'public'
+      AND c.relname = 'contractors'
+  ) THEN
+    EXECUTE 'alter publication supabase_realtime add table public.contractors';
+  END IF;
+END $$;
+
+-- Recommended: better UPDATE payloads for realtime listeners [2](blob:https://outlook.office.com/1a150364-4a85-4951-8b25-731ad8a515ea)[3](blob:https://outlook.office.com/ca8336a9-2e51-482f-9040-e06a6a9b78f1)
+alter table public.contractors replica identity full;
