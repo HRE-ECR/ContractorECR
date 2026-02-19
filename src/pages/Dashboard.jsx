@@ -72,10 +72,10 @@ function Summary({ items }) {
     <div className="space-y-2 mb-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
         {chip('Total on site', onSite.length, '👷', 'slate')}
-        {chip('Maint-1', counts['Maint-1'], '🛠️', 'blue')}
-        {chip('Maint-2', counts['Maint-2'], '🛠️', 'blue')}
-        {chip('Insp-shed', counts['Insp-shed'], '🔍', 'amber')}
-        {chip('Rep-Shed', counts['Rep-Shed'], '🏚️', 'amber')}
+        {chip('Maint-1', counts['Maint-1'], '🚂', 'blue')}
+        {chip('Maint-2', counts['Maint-2'], '🚂', 'blue')}
+        {chip('Insp-shed', counts['Insp-shed'], '🚂', 'blue')}
+        {chip('Rep-Shed', counts['Rep-Shed'], '🚂', 'blue')}
         {chip('1-Clean', counts['1-Clean'], '🧽', 'green')}
         {chip('2-Clean', counts['2-Clean'], '🧽', 'green')}
         {chip('3-Clean', counts['3-Clean'], '🧽', 'green')}
