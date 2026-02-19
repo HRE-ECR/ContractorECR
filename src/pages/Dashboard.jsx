@@ -7,7 +7,6 @@ const NL = String.fromCharCode(10)
 function Summary({ items }) {
   const onSite = items.filter(i => i.status !== 'signed_out' && !i.signed_out_at)
   const total = onSite.length
-
   const perArea = {}
   AREAS.forEach(a => { perArea[a] = 0 })
 
@@ -105,9 +104,7 @@ function AwaitingRow({ item, onConfirm }) {
         <input className="border rounded p-1 w-32" placeholder="Enter fob #" value={fob} onChange={e => setFob(e.target.value)} />
       </Td>
       <Td>
-        <button onClick={() => onConfirm(item.id, fob)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
-          Confirm sign-in
-        </button>
+        <button onClick={() => onConfirm(item.id, fob)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">Confirm sign-in</button>
       </Td>
     </tr>
   )
