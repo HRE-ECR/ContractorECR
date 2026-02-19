@@ -5,7 +5,7 @@ export default function Landing() {
   return (
     <section className="py-10 space-y-6">
       <h1 className="text-3xl font-bold text-slate-900">
-        Contractor / Visitor Management
+        Craigentinny Contractor / Visitor Management
       </h1>
 
       <p className="text-slate-600">
@@ -64,7 +64,7 @@ export default function Landing() {
       </div>
 
       <div className="text-xs text-slate-500 pt-2">
-        Team leader access is available from the top navigation bar.
+        Please sign in, your First name and Phone number will be your uniquie identifier.
       </div>
     </section>
   )
