@@ -4,35 +4,29 @@ import { supabase } from '../supabaseClient'
 
 export default function NavBar() {
   const location = useLocation()
-  const [user, setUser] = React.useState(null)
+  const [session, setSession] = React.useState(null)
   const [role, setRole] = React.useState(null)
 
   React.useEffect(() => {
     let mounted = true
 
-    async function syncUserAndRole() {
-      const { data } = await supabase.auth.getUser()
+    async function syncFromSession() {
+      const { data } = await supabase.auth.getSession()
       if (!mounted) return
-      setUser(data.user || null)
 
-      if (data.user?.id) {
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', data.user.id)
-          .single()
+      const sess = data.session || null
+      setSession(sess)
 
-        if (!mounted) return
-        setRole(prof?.role || null)
-      } else {
-        setRole(null)
-      }
+      const r = sess?.user?.app_metadata?.app_role || null
+      setRole(r)
     }
 
-    syncUserAndRole()
+    syncFromSession()
 
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      syncUserAndRole()
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      if (!mounted) return
+      setSession(sess || null)
+      setRole(sess?.user?.app_metadata?.app_role || null)
     })
 
     return () => {
@@ -51,12 +45,12 @@ export default function NavBar() {
     `${linkBase} ${isActive(path) ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-700'}`
 
   const normalizedRole = (role || '').toLowerCase()
-  const canDashboard = !!user && (normalizedRole === 'teamleader' || normalizedRole === 'admin')
-  const canScreen = !!user && (normalizedRole === 'display' || normalizedRole === 'teamleader' || normalizedRole === 'admin')
+  const canDashboard = !!session && (normalizedRole === 'teamleader' || normalizedRole === 'admin')
+  const canScreen = !!session && (normalizedRole === 'display' || normalizedRole === 'teamleader' || normalizedRole === 'admin')
 
   return (
     <nav className="bg-slate-900 text-white">
-      {/* Hide scrollbar (webkit) while keeping swipe-scroll */}
+      {/* Hide scrollbar but keep swipe scrolling */}
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -68,7 +62,7 @@ export default function NavBar() {
             ContractorECR
           </Link>
 
-          {/* Mobile: one line + swipe left/right (no scrollbar). Desktop: normal. */}
+          {/* Mobile: one row + swipe left/right (no scrollbar). Desktop: normal */}
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap touch-pan-x sm:overflow-visible">
             <Link className={linkClass('/')} to="/">Home</Link>
             <Link className={linkClass('/sign-in')} to="/sign-in">Sign-in</Link>
@@ -82,7 +76,7 @@ export default function NavBar() {
               <Link className={linkClass('/screen')} to="/screen">Screen display</Link>
             )}
 
-            {user ? (
+            {session ? (
               <button
                 onClick={handleSignOut}
                 className="px-3 py-2 text-sm bg-red-600 hover:bg-red-700 rounded-md whitespace-nowrap"
