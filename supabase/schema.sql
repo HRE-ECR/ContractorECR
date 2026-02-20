@@ -23,9 +23,10 @@ alter table public.profiles
 alter table public.profiles
   drop constraint if exists profiles_role_check;
 
+-- ✅ Added Display role here
 alter table public.profiles
   add constraint profiles_role_check
-  check (role in ('New_Teamleader','teamleader','admin'));
+  check (role in ('New_Teamleader','teamleader','admin','Display'));
 
 -- Create profile on new user (default role = New_Teamleader)
 create or replace function public.handle_new_user() returns trigger as $$
@@ -154,6 +155,13 @@ create or replace function public.is_teamleader() returns boolean as $$
   );
 $$ language sql stable;
 
+-- ✅ NEW: Display role helper
+create or replace function public.is_display() returns boolean as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'Display'
+  );
+$$ language sql stable;
+
 -- RLS
 alter table public.contractors enable row level security;
 alter table public.profiles enable row level security;
@@ -183,15 +191,15 @@ for insert
 to anon
 with check (true);
 
--- Team leaders (approved) can read
+-- ✅ Updated: Teamleaders OR Display can read contractors
 drop policy if exists "Teamleaders can read contractors" on public.contractors;
 create policy "Teamleaders can read contractors"
 on public.contractors
 for select
 to authenticated
-using (public.is_teamleader());
+using (public.is_teamleader() OR public.is_display());
 
--- Team leaders (approved) can update
+-- Team leaders (approved) can update (Display cannot update)
 drop policy if exists "Teamleaders can update contractors" on public.contractors;
 create policy "Teamleaders can update contractors"
 on public.contractors
@@ -219,8 +227,8 @@ $$ language plpgsql security definer;
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
 
 --------------------------------------------------------------------------------
--- Realtime (Postgres Changes) for Dashboard auto-refresh
--- Required: add contractors table to supabase_realtime publication [1](https://www.youtube.com/watch?v=nn1z1jnz8x8)
+-- Realtime (Postgres Changes) for Dashboard / Screen display auto-refresh
+-- Required: add contractors table to supabase_realtime publication
 --------------------------------------------------------------------------------
 DO $$
 BEGIN
@@ -238,5 +246,5 @@ BEGIN
   END IF;
 END $$;
 
--- Recommended: improves UPDATE payloads for realtime listeners [3](blob:https://outlook.office.com/1a150364-4a85-4951-8b25-731ad8a515ea)[2](blob:https://outlook.office.com/ca8336a9-2e51-482f-9040-e06a6a9b78f1)
+-- Recommended: improves UPDATE payloads for realtime listeners
 alter table public.contractors replica identity full;
