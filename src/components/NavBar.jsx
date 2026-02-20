@@ -13,12 +13,9 @@ export default function NavBar() {
     async function syncFromSession() {
       const { data } = await supabase.auth.getSession()
       if (!mounted) return
-
       const sess = data.session || null
       setSession(sess)
-
-      const r = sess?.user?.app_metadata?.app_role || null
-      setRole(r)
+      setRole(sess?.user?.app_metadata?.app_role || null)
     }
 
     syncFromSession()
@@ -63,7 +60,10 @@ export default function NavBar() {
           </Link>
 
           {/* Mobile: one row + swipe left/right (no scrollbar). Desktop: normal */}
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap touch-pan-x sm:overflow-visible">
+          <div
+            className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap sm:overflow-visible"
+            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
+          >
             <Link className={linkClass('/')} to="/">Home</Link>
             <Link className={linkClass('/sign-in')} to="/sign-in">Sign-in</Link>
             <Link className={linkClass('/sign-out')} to="/sign-out">Sign-out</Link>
