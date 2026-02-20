@@ -7,6 +7,7 @@ import SignOut from './pages/SignOut'
 import TeamLogin from './pages/TeamLogin'
 import ResetPassword from './pages/ResetPassword'
 import Dashboard from './pages/Dashboard'
+import ScreenDisplay from './pages/ScreenDisplay'
 
 import NavBar from './components/NavBar'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -24,7 +25,6 @@ export default function App() {
           <Route path="/login" element={<TeamLogin />} />
           <Route path="/reset-password" element={<ResetPassword />} />
 
-          {/* Dashboard (role gating will be enforced via ProtectedRoute once we patch it next) */}
           <Route
             path="/dashboard"
             element={
@@ -34,18 +34,11 @@ export default function App() {
             }
           />
 
-          {/* Screen display (placeholder for now — we'll replace with ScreenDisplay.jsx after you post NavBar + ProtectedRoute) */}
           <Route
             path="/screen"
             element={
               <ProtectedRoute>
-                <div className="bg-white border rounded p-6">
-                  <h1 className="text-2xl font-bold mb-2">Screen display</h1>
-                  <p className="text-slate-600">
-                    Screen display page is being added next. Post your NavBar.jsx and ProtectedRoute.jsx and I’ll wire this
-                    up properly (Display role access + Teamleader access + realtime refresh).
-                  </p>
-                </div>
+                <ScreenDisplay />
               </ProtectedRoute>
             }
           />
@@ -54,7 +47,7 @@ export default function App() {
         </Routes>
 
         <footer className="text-center text-xs text-slate-500 mt-6">
-          <p>© {new Date().getFullYear()} ContractorECR</p>
+          <p>© {new Date().getFullYear()} ContractorECR Admin:Jason.Edwards@hitachirail.com</p>
         </footer>
       </main>
     </div>
