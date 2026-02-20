@@ -1,6 +1,7 @@
 import React from 'react'
 import { supabase } from '../supabaseClient'
 
+// Standard areas for totals (matches your naming)
 const STANDARD_AREAS = [
   'Maint-1',
   'Maint-2',
@@ -12,6 +13,7 @@ const STANDARD_AREAS = [
   '4-Clean',
 ]
 
+// Anything not in STANDARD_AREAS counts towards "Other"
 function isOtherArea(a) {
   if (!a) return false
   const s = String(a).trim()
@@ -79,10 +81,11 @@ export default function ScreenDisplay() {
     }
   }, [])
 
+  // Data buckets
   const awaiting = items.filter(i => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter(i => i.status === 'confirmed' && !i.signed_out_at)
 
-  // Totals (count per-area; Other is contractor-level count)
+  // Totals
   const counts = {}
   STANDARD_AREAS.forEach(a => { counts[a] = 0 })
   let otherCount = 0
@@ -96,20 +99,24 @@ export default function ScreenDisplay() {
       else if (isOtherArea(a)) hasOther = true
     })
 
+    // "Other" is contractor-level count: if they have any non-standard area, count them once
     if (hasOther) otherCount += 1
   })
 
-  const totalChip = (label, value) => (
-    <div className="px-4 py-3 rounded-xl border bg-white shadow-sm flex items-center justify-between">
-      <div className="text-sm font-semibold text-slate-600">{label}</div>
-      <div className="text-2xl font-bold tabular-nums text-slate-900">{value}</div>
-    </div>
-  )
+  // Smaller, clean counter tile
+  function CounterTile({ label, value }) {
+    return (
+      <div className="px-3 py-2 rounded-lg border border-slate-200 bg-white shadow-sm flex items-center justify-between">
+        <div className="text-[11px] font-semibold text-slate-600 truncate">{label}</div>
+        <div className="text-lg font-bold tabular-nums text-slate-900">{value}</div>
+      </div>
+    )
+  }
 
   if (loading) return <div className="p-6 text-xl">Loading screen display…</div>
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-5">
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Screen display</h1>
@@ -121,39 +128,55 @@ export default function ScreenDisplay() {
         </div>
       </div>
 
-      {/* Totals */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {totalChip('On site', onSite.length)}
-        {totalChip('Awaiting', awaiting.length)}
-        {totalChip('Maint-1', counts['Maint-1'])}
-        {totalChip('Maint-2', counts['Maint-2'])}
-        {totalChip('Insp-shed', counts['Insp-shed'])}
-        {totalChip('Other', otherCount)}
+      {/* Counters: all areas + Other */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10 gap-2">
+        <CounterTile label="On site" value={onSite.length} />
+        <CounterTile label="Awaiting" value={awaiting.length} />
+
+        {STANDARD_AREAS.map(a => (
+          <CounterTile key={a} label={a} value={counts[a]} />
+        ))}
+
+        <CounterTile label="Other" value={otherCount} />
       </div>
 
-      {/* Awaiting confirmation */}
+      <p className="text-xs text-slate-500">
+        “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
+      </p>
+
+      {/* Awaiting confirmation (grey header + green row highlight + includes fob#) */}
       <div className="bg-white border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b bg-emerald-50 font-semibold text-emerald-900">
+        <div className="px-4 py-3 border-b bg-slate-50 font-semibold text-slate-900">
           Awaiting sign-in confirmation ({awaiting.length})
         </div>
+
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wider text-slate-500">
+              <tr className="text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
                 <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Company</th>
                 <th className="px-4 py-2">Areas</th>
+                <th className="px-4 py-2">Fob #</th>
               </tr>
             </thead>
             <tbody>
               {awaiting.length === 0 && (
-                <tr><td className="px-4 py-3 text-slate-500" colSpan={3}>None</td></tr>
+                <tr>
+                  <td className="px-4 py-3 text-slate-500" colSpan={4}>None</td>
+                </tr>
               )}
+
               {awaiting.map(i => (
-                <tr key={i.id} className="border-t">
-                  <td className="px-4 py-3 font-semibold">{i.first_name} {i.surname}</td>
-                  <td className="px-4 py-3">{i.company}</td>
-                  <td className="px-4 py-3">{(i.areas || []).join(', ')}</td>
+                <tr key={i.id} className="border-t bg-emerald-50/60">
+                  <td className="px-4 py-3 font-semibold text-emerald-900">
+                    {i.first_name} {i.surname}
+                  </td>
+                  <td className="px-4 py-3 text-emerald-900/90">{i.company}</td>
+                  <td className="px-4 py-3 text-emerald-900/90">{(i.areas || []).join(', ')}</td>
+                  <td className="px-4 py-3 text-emerald-900/90">
+                    {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -161,15 +184,16 @@ export default function ScreenDisplay() {
         </div>
       </div>
 
-      {/* On site */}
+      {/* On site (grey header + red row highlight if signout_requested = Yes) */}
       <div className="bg-white border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b bg-slate-50 font-semibold text-slate-900">
           Signed in contractors ({onSite.length})
         </div>
+
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wider text-slate-500">
+              <tr className="text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
                 <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Company</th>
                 <th className="px-4 py-2">Areas</th>
@@ -178,18 +202,32 @@ export default function ScreenDisplay() {
             </thead>
             <tbody>
               {onSite.length === 0 && (
-                <tr><td className="px-4 py-3 text-slate-500" colSpan={4}>None</td></tr>
-              )}
-              {onSite.map(i => (
-                <tr key={i.id} className="border-t">
-                  <td className="px-4 py-3 font-semibold">{i.first_name} {i.surname}</td>
-                  <td className="px-4 py-3">{i.company}</td>
-                  <td className="px-4 py-3">{(i.areas || []).join(', ')}</td>
-                  <td className="px-4 py-3">
-                    {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
-                  </td>
+                <tr>
+                  <td className="px-4 py-3 text-slate-500" colSpan={4}>None</td>
                 </tr>
-              ))}
+              )}
+
+              {onSite.map(i => {
+                const awaitingSignOut = !!i.signout_requested
+                const rowClass = awaitingSignOut ? 'bg-rose-50/70' : ''
+
+                return (
+                  <tr key={i.id} className={`border-t ${rowClass}`}>
+                    <td className={`px-4 py-3 font-semibold ${awaitingSignOut ? 'text-rose-900' : ''}`}>
+                      {i.first_name} {i.surname}
+                    </td>
+                    <td className={`px-4 py-3 ${awaitingSignOut ? 'text-rose-900/90' : ''}`}>
+                      {i.company}
+                    </td>
+                    <td className={`px-4 py-3 ${awaitingSignOut ? 'text-rose-900/90' : ''}`}>
+                      {(i.areas || []).join(', ')}
+                    </td>
+                    <td className={`px-4 py-3 ${awaitingSignOut ? 'text-rose-900/90' : ''}`}>
+                      {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
