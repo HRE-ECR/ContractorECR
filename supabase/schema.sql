@@ -23,7 +23,7 @@ alter table public.profiles
 alter table public.profiles
   drop constraint if exists profiles_role_check;
 
--- ✅ Added Display role here
+-- Added Display role here
 alter table public.profiles
   add constraint profiles_role_check
   check (role in ('New_Teamleader','teamleader','admin','Display'));
@@ -155,12 +155,45 @@ create or replace function public.is_teamleader() returns boolean as $$
   );
 $$ language sql stable;
 
--- ✅ NEW: Display role helper
 create or replace function public.is_display() returns boolean as $$
   select exists (
     select 1 from public.profiles where id = auth.uid() and role = 'Display'
   );
 $$ language sql stable;
+
+--------------------------------------------------------------------------------
+-- JWT Custom Access Token Hook (NO client query to public.profiles needed)
+-- Adds the user's role into the JWT as: app_metadata.app_role
+-- After running this SQL, enable it in Supabase:
+-- Auth -> Hooks -> Custom Access Token Hook -> public.custom_access_token_hook
+--------------------------------------------------------------------------------
+create or replace function public.custom_access_token_hook(event jsonb)
+returns jsonb
+language plpgsql
+as $$
+declare
+  claims jsonb := event->'claims';
+  uid uuid := (event->>'user_id')::uuid;
+  r text;
+begin
+  select role into r
+  from public.profiles
+  where id = uid;
+
+  if r is null then
+    r := 'New_Teamleader';
+  end if;
+
+  claims := jsonb_set(
+    claims,
+    '{app_metadata,app_role}',
+    to_jsonb(r),
+    true
+  );
+
+  return jsonb_build_object('claims', claims);
+end;
+$$;
 
 -- RLS
 alter table public.contractors enable row level security;
@@ -191,7 +224,7 @@ for insert
 to anon
 with check (true);
 
--- ✅ Updated: Teamleaders OR Display can read contractors
+-- Teamleaders OR Display can read contractors
 drop policy if exists "Teamleaders can read contractors" on public.contractors;
 create policy "Teamleaders can read contractors"
 on public.contractors
@@ -199,7 +232,7 @@ for select
 to authenticated
 using (public.is_teamleader() OR public.is_display());
 
--- Team leaders (approved) can update (Display cannot update)
+-- Team leaders can update (Display cannot update)
 drop policy if exists "Teamleaders can update contractors" on public.contractors;
 create policy "Teamleaders can update contractors"
 on public.contractors
