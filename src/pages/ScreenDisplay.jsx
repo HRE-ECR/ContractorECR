@@ -33,6 +33,31 @@ export default function ScreenDisplay() {
   const [lastUpdated, setLastUpdated] = React.useState(null)
   const [error, setError] = React.useState('')
 
+  // Dark mode state (persisted)
+  const [darkMode, setDarkMode] = React.useState(false)
+
+  // Load dark mode preference (localStorage, else system preference)
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('screenDisplayDarkMode')
+      if (saved === 'true' || saved === 'false') {
+        setDarkMode(saved === 'true')
+      } else if (window?.matchMedia) {
+        setDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('screenDisplayDarkMode', String(darkMode))
+    } catch {
+      // ignore
+    }
+  }, [darkMode])
+
   const loadRef = React.useRef(null)
 
   async function load() {
@@ -105,27 +130,63 @@ export default function ScreenDisplay() {
 
   // Smaller, clean counter tile
   function CounterTile({ label, value }) {
+    const tileBase = darkMode
+      ? 'border-slate-800 bg-slate-900 text-slate-100'
+      : 'border-slate-200 bg-white text-slate-900'
+
+    const labelCls = darkMode ? 'text-slate-300' : 'text-slate-600'
+
     return (
-      <div className="px-3 py-2 rounded-lg border border-slate-200 bg-white shadow-sm flex items-center justify-between">
-        <div className="text-[11px] font-semibold text-slate-600 truncate">{label}</div>
-        <div className="text-lg font-bold tabular-nums text-slate-900">{value}</div>
+      <div className={`px-3 py-2 rounded-lg border shadow-sm flex items-center justify-between ${tileBase}`}>
+        <div className={`text-[11px] font-semibold truncate ${labelCls}`}>{label}</div>
+        <div className="text-lg font-bold tabular-nums">{value}</div>
       </div>
     )
   }
 
+  const pageBg = darkMode ? 'bg-slate-950 text-slate-100' : 'bg-transparent text-slate-900'
+  const mutedText = darkMode ? 'text-slate-300' : 'text-slate-600'
+  const cardBase = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+  const headerBase = darkMode ? 'bg-slate-800 text-slate-100 border-slate-800' : 'bg-slate-50 text-slate-900 border-slate-200'
+  const theadBase = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'
+
+  // Highlights (kept in both modes)
+  const awaitingRowBg = darkMode ? 'bg-emerald-900/25' : 'bg-emerald-50/60'
+  const awaitingTextMain = darkMode ? 'text-emerald-200' : 'text-emerald-900'
+  const awaitingTextSub = darkMode ? 'text-emerald-200/90' : 'text-emerald-900/90'
+
+  const signoutRowBg = darkMode ? 'bg-rose-900/20' : 'bg-rose-50/70'
+  const signoutTextMain = darkMode ? 'text-rose-200' : 'text-rose-900'
+  const signoutTextSub = darkMode ? 'text-rose-200/90' : 'text-rose-900/90'
+
   if (loading) return <div className="p-6 text-xl">Loading screen display…</div>
 
   return (
-    <section className="space-y-5">
-      <div className="flex items-end justify-between gap-4">
+    <section className={`space-y-5 p-3 rounded-xl ${pageBg}`}>
+      {/* Top row: title left, dark mode toggle right */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Screen display</h1>
-          <p className="text-slate-600">
+          <h1 className="text-3xl font-bold">Screen display</h1>
+          <p className={mutedText}>
             Live view — updates automatically
             {lastUpdated ? ` • Last updated: ${formatNow(lastUpdated)}` : ''}
           </p>
-          {error && <p className="text-red-600 mt-2">{error}</p>}
+          {error && <p className="text-red-400 mt-2">{error}</p>}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setDarkMode(v => !v)}
+          className={
+            darkMode
+              ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+              : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+          }
+          aria-label="Toggle dark mode"
+          title="Toggle dark mode"
+        >
+          {darkMode ? '☾ Dark' : '☀ Light'}
+        </button>
       </div>
 
       {/* Counters: all areas + Other */}
@@ -140,43 +201,41 @@ export default function ScreenDisplay() {
         <CounterTile label="Other" value={otherCount} />
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
       </p>
 
-      {/* Awaiting confirmation (grey header + green row highlight + includes fob#) */}
-      <div className="bg-white border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b bg-slate-50 font-semibold text-slate-900">
+      {/* Awaiting confirmation (grey header + green row highlight) */}
+      <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
+        <div className={`px-4 py-3 border-b font-semibold ${headerBase}`}>
           Awaiting sign-in confirmation ({awaiting.length})
         </div>
 
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
+              <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
                 <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Company</th>
                 <th className="px-4 py-2">Areas</th>
-                <th className="px-4 py-2">Fob #</th>
               </tr>
             </thead>
             <tbody>
               {awaiting.length === 0 && (
                 <tr>
-                  <td className="px-4 py-3 text-slate-500" colSpan={4}>None</td>
+                  <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} colSpan={3}>
+                    None
+                  </td>
                 </tr>
               )}
 
               {awaiting.map(i => (
-                <tr key={i.id} className="border-t bg-emerald-50/60">
-                  <td className="px-4 py-3 font-semibold text-emerald-900">
+                <tr key={i.id} className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
+                  <td className={`px-4 py-3 font-semibold ${awaitingTextMain}`}>
                     {i.first_name} {i.surname}
                   </td>
-                  <td className="px-4 py-3 text-emerald-900/90">{i.company}</td>
-                  <td className="px-4 py-3 text-emerald-900/90">{(i.areas || []).join(', ')}</td>
-                  <td className="px-4 py-3 text-emerald-900/90">
-                    {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
-                  </td>
+                  <td className={`px-4 py-3 ${awaitingTextSub}`}>{i.company}</td>
+                  <td className={`px-4 py-3 ${awaitingTextSub}`}>{(i.areas || []).join(', ')}</td>
                 </tr>
               ))}
             </tbody>
@@ -185,15 +244,15 @@ export default function ScreenDisplay() {
       </div>
 
       {/* On site (grey header + red row highlight if signout_requested = Yes) */}
-      <div className="bg-white border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b bg-slate-50 font-semibold text-slate-900">
+      <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
+        <div className={`px-4 py-3 border-b font-semibold ${headerBase}`}>
           Signed in contractors ({onSite.length})
         </div>
 
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
+              <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
                 <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Company</th>
                 <th className="px-4 py-2">Areas</th>
@@ -203,27 +262,27 @@ export default function ScreenDisplay() {
             <tbody>
               {onSite.length === 0 && (
                 <tr>
-                  <td className="px-4 py-3 text-slate-500" colSpan={4}>None</td>
+                  <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} colSpan={4}>
+                    None
+                  </td>
                 </tr>
               )}
 
               {onSite.map(i => {
                 const awaitingSignOut = !!i.signout_requested
-                const rowClass = awaitingSignOut ? 'bg-rose-50/70' : ''
+                const rowBg = awaitingSignOut ? signoutRowBg : ''
+                const mainCls = awaitingSignOut ? signoutTextMain : (darkMode ? 'text-slate-100' : 'text-slate-900')
+                const subCls = awaitingSignOut ? signoutTextSub : (darkMode ? 'text-slate-200' : 'text-slate-700')
 
                 return (
-                  <tr key={i.id} className={`border-t ${rowClass}`}>
-                    <td className={`px-4 py-3 font-semibold ${awaitingSignOut ? 'text-rose-900' : ''}`}>
+                  <tr key={i.id} className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
+                    <td className={`px-4 py-3 font-semibold ${mainCls}`}>
                       {i.first_name} {i.surname}
                     </td>
-                    <td className={`px-4 py-3 ${awaitingSignOut ? 'text-rose-900/90' : ''}`}>
-                      {i.company}
-                    </td>
-                    <td className={`px-4 py-3 ${awaitingSignOut ? 'text-rose-900/90' : ''}`}>
-                      {(i.areas || []).join(', ')}
-                    </td>
-                    <td className={`px-4 py-3 ${awaitingSignOut ? 'text-rose-900/90' : ''}`}>
-                      {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
+                    <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
+                    <td className={`px-4 py-3 ${subCls}`}>{(i.areas || []).join(', ')}</td>
+                    <td className={`px-4 py-3 ${subCls}`}>
+                      {i.fob_number ? i.fob_number : <span className={darkMode ? 'text-slate-400' : 'text-slate-400'}>-</span>}
                     </td>
                   </tr>
                 )
@@ -233,7 +292,7 @@ export default function ScreenDisplay() {
         </div>
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         This screen view is read-only. Use the Dashboard for confirmations and updates.
       </p>
     </section>
