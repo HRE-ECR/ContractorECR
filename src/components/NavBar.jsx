@@ -2,6 +2,39 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
+function base64UrlDecode(str) {
+  if (!str) return null
+  const pad = '='.repeat((4 - (str.length % 4)) % 4)
+  const base64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/')
+  try {
+    return decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+  } catch {
+    try {
+      return atob(base64)
+    } catch {
+      return null
+    }
+  }
+}
+
+function getRoleFromAccessToken(accessToken) {
+  try {
+    const parts = String(accessToken || '').split('.')
+    if (parts.length < 2) return null
+    const json = base64UrlDecode(parts[1])
+    if (!json) return null
+    const payload = JSON.parse(json)
+    return payload?.app_metadata?.app_role || null
+  } catch {
+    return null
+  }
+}
+
 export default function NavBar() {
   const location = useLocation()
   const [session, setSession] = React.useState(null)
@@ -10,20 +43,20 @@ export default function NavBar() {
   React.useEffect(() => {
     let mounted = true
 
-    async function syncFromSession() {
+    async function sync() {
       const { data } = await supabase.auth.getSession()
       if (!mounted) return
       const sess = data.session || null
       setSession(sess)
-      setRole(sess?.user?.app_metadata?.app_role || null)
+      setRole(getRoleFromAccessToken(sess?.access_token))
     }
 
-    syncFromSession()
+    sync()
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (!mounted) return
       setSession(sess || null)
-      setRole(sess?.user?.app_metadata?.app_role || null)
+      setRole(getRoleFromAccessToken(sess?.access_token))
     })
 
     return () => {
@@ -59,7 +92,7 @@ export default function NavBar() {
             ContractorECR
           </Link>
 
-          {/* Mobile: one row + swipe left/right (no scrollbar). Desktop: normal */}
+          {/* Mobile: one row + swipe left/right (no scrollbar) */}
           <div
             className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap sm:overflow-visible"
             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
