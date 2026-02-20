@@ -1,15 +1,27 @@
+-- ============================================
+-- ContractorECR schema.sql (clean)
+-- Includes:
+-- - profiles + roles (New_Teamleader/teamleader/admin/Display)
+-- - contractors table (areas text[])
+-- - RLS policies
+-- - realtime publication enablement
+-- - Custom Access Token Hook (JWT role claim)
+-- ============================================
+
 -- Extensions
 create extension if not exists pgcrypto;
 
--- Enum types (area_type removed because areas now uses text[])
+-- Enum types
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_type') THEN
-    CREATE TYPE status_type AS ENUM ('pending','confirmed','signed_out');
+    CREATE TYPE public.status_type AS ENUM ('pending','confirmed','signed_out');
   END IF;
 END $$;
 
+-- =========================
 -- Profiles
+-- =========================
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text unique,
@@ -17,33 +29,41 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+-- Ensure default + allowed roles
 alter table public.profiles
   alter column role set default 'New_Teamleader';
 
 alter table public.profiles
   drop constraint if exists profiles_role_check;
 
--- Added Display role here
 alter table public.profiles
   add constraint profiles_role_check
   check (role in ('New_Teamleader','teamleader','admin','Display'));
 
 -- Create profile on new user (default role = New_Teamleader)
-create or replace function public.handle_new_user() returns trigger as $$
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 begin
   insert into public.profiles (id, email, role)
   values (new.id, new.email, 'New_Teamleader')
   on conflict do nothing;
+
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Contractors table (areas now text[])
+-- =========================
+-- Contractors
+-- =========================
 create table if not exists public.contractors (
   id uuid primary key default gen_random_uuid(),
   first_name text not null,
@@ -51,7 +71,7 @@ create table if not exists public.contractors (
   company text not null,
   phone text not null,
   areas text[] not null,
-  status status_type not null default 'pending',
+  status public.status_type not null default 'pending',
   fob_number text,
   fob_returned boolean not null default false,
   signout_requested boolean not null default false,
@@ -66,7 +86,7 @@ create table if not exists public.contractors (
   updated_at timestamptz not null default now()
 );
 
--- If you already had areas as area_type[] (enum array), convert it to text[] safely
+-- If you previously had areas as enum array (_area_type), safely convert to text[]
 DO $$
 BEGIN
   IF EXISTS (
@@ -83,13 +103,7 @@ BEGIN
   END IF;
 END $$;
 
--- idempotent alter for audit columns
-alter table public.contractors add column if not exists sign_in_confirmed_by uuid;
-alter table public.contractors add column if not exists sign_in_confirmed_by_email text;
-alter table public.contractors add column if not exists signed_out_by uuid;
-alter table public.contractors add column if not exists signed_out_by_email text;
-
--- ensure at least one area
+-- Ensure at least one area selected
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -105,26 +119,35 @@ BEGIN
 END $$;
 
 -- updated_at trigger
-create or replace function public.set_updated_at() returns trigger as $$
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
 begin
   new.updated_at = now();
   return new;
 end;
-$$ language plpgsql;
+$$;
 
 drop trigger if exists set_timestamp on public.contractors;
 create trigger set_timestamp
-before update on public.contractors
-for each row execute function public.set_updated_at();
+  before update on public.contractors
+  for each row execute function public.set_updated_at();
 
 -- Indexes
 create index if not exists contractors_phone_open_idx on public.contractors (phone, signed_out_at);
 create index if not exists contractors_status_idx on public.contractors (status);
 create index if not exists contractors_signed_in_idx on public.contractors (signed_in_at desc);
 
--- Public sign-out request function
+-- =========================
+-- Public sign-out request function (used by SignOut page)
+-- =========================
 create or replace function public.request_signout(p_first text, p_phone text)
-returns integer as $$
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   v_count integer;
 begin
@@ -137,45 +160,70 @@ begin
   get diagnostics v_count = row_count;
   return v_count;
 end;
-$$ language plpgsql security definer set search_path = public;
+$$;
 
 revoke all on function public.request_signout(text, text) from public;
 grant execute on function public.request_signout(text, text) to anon, authenticated;
 
+-- =========================
 -- Role helper functions
-create or replace function public.is_admin() returns boolean as $$
+-- =========================
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+as $$
   select exists (
-    select 1 from public.profiles where id = auth.uid() and role = 'admin'
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin'
   );
-$$ language sql stable;
+$$;
 
-create or replace function public.is_teamleader() returns boolean as $$
+create or replace function public.is_teamleader()
+returns boolean
+language sql
+stable
+as $$
   select exists (
-    select 1 from public.profiles where id = auth.uid() and role in ('teamleader','admin')
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('teamleader','admin')
   );
-$$ language sql stable;
+$$;
 
-create or replace function public.is_display() returns boolean as $$
+create or replace function public.is_display()
+returns boolean
+language sql
+stable
+as $$
   select exists (
-    select 1 from public.profiles where id = auth.uid() and role = 'Display'
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'Display'
   );
-$$ language sql stable;
+$$;
 
---------------------------------------------------------------------------------
--- JWT Custom Access Token Hook (NO client query to public.profiles needed)
--- Adds the user's role into the JWT as: app_metadata.app_role
--- After running this SQL, enable it in Supabase:
--- Auth -> Hooks -> Custom Access Token Hook -> public.custom_access_token_hook
---------------------------------------------------------------------------------
+-- ============================================================
+-- Custom Access Token Hook (JWT role claim)
+-- Injects role into JWT: claims.app_metadata.app_role
+-- ============================================================
 create or replace function public.custom_access_token_hook(event jsonb)
 returns jsonb
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
-  claims jsonb := event->'claims';
-  uid uuid := (event->>'user_id')::uuid;
+  claims jsonb := coalesce(event->'claims', '{}'::jsonb);
+  uid uuid;
   r text;
 begin
+  -- Safely parse user_id
+  begin
+    uid := (event->>'user_id')::uuid;
+  exception when others then
+    return jsonb_build_object('claims', claims);
+  end;
+
+  -- Fetch role
   select role into r
   from public.profiles
   where id = uid;
@@ -184,6 +232,7 @@ begin
     r := 'New_Teamleader';
   end if;
 
+  -- Set claim: app_metadata.app_role
   claims := jsonb_set(
     claims,
     '{app_metadata,app_role}',
@@ -192,14 +241,26 @@ begin
   );
 
   return jsonb_build_object('claims', claims);
+
+exception when others then
+  -- Fail-safe: never block auth if unexpected errors occur
+  return jsonb_build_object('claims', claims);
 end;
 $$;
 
+-- Grant hook execution to Supabase Auth role and revoke from public API roles
+-- Supabase recommends these grants/revokes for Postgres function hooks. [1](blob:https://outlook.office.com/0ddcb807-0167-4c68-abb0-20ee967fc75d)
+grant usage on schema public to supabase_auth_admin;
+grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
+revoke execute on function public.custom_access_token_hook(jsonb) from anon, authenticated, public;
+
+-- =========================
 -- RLS
+-- =========================
 alter table public.contractors enable row level security;
 alter table public.profiles enable row level security;
 
--- Profiles policies (view own)
+-- Profiles: view own
 drop policy if exists "Profiles are viewable by owners" on public.profiles;
 create policy "Profiles are viewable by owners"
 on public.profiles
@@ -207,7 +268,7 @@ for select
 to authenticated
 using (id = auth.uid());
 
--- Admin can view all profiles
+-- Profiles: admin can view all
 drop policy if exists "Admins can view all profiles" on public.profiles;
 create policy "Admins can view all profiles"
 on public.profiles
@@ -215,8 +276,7 @@ for select
 to authenticated
 using (public.is_admin());
 
--- Contractors policies
--- Anyone can insert sign-in requests
+-- Contractors: public can insert sign-in requests
 drop policy if exists "Public can insert contractor sign-in" on public.contractors;
 create policy "Public can insert contractor sign-in"
 on public.contractors
@@ -224,7 +284,7 @@ for insert
 to anon
 with check (true);
 
--- Teamleaders OR Display can read contractors
+-- Contractors: Teamleaders OR Display can read
 drop policy if exists "Teamleaders can read contractors" on public.contractors;
 create policy "Teamleaders can read contractors"
 on public.contractors
@@ -232,7 +292,7 @@ for select
 to authenticated
 using (public.is_teamleader() OR public.is_display());
 
--- Team leaders can update (Display cannot update)
+-- Contractors: Teamleaders can update (Display cannot update)
 drop policy if exists "Teamleaders can update contractors" on public.contractors;
 create policy "Teamleaders can update contractors"
 on public.contractors
@@ -240,7 +300,7 @@ for update
 to authenticated
 using (public.is_teamleader());
 
--- Only admins can delete
+-- Contractors: only admins can delete
 drop policy if exists "Admins can delete contractors" on public.contractors;
 create policy "Admins can delete contractors"
 on public.contractors
@@ -248,21 +308,26 @@ for delete
 to authenticated
 using (public.is_admin());
 
+-- =========================
 -- Cleanup function
+-- =========================
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 7)
-returns void as $$
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 begin
   delete from public.contractors c
   where coalesce(c.signed_out_at, c.signed_in_at) < now() - make_interval(days => days_to_keep);
 end;
-$$ language plpgsql security definer;
+$$;
 
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
 
---------------------------------------------------------------------------------
--- Realtime (Postgres Changes) for Dashboard / Screen display auto-refresh
--- Required: add contractors table to supabase_realtime publication
---------------------------------------------------------------------------------
+-- =========================
+-- Realtime (Postgres Changes) enablement
+-- =========================
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -279,5 +344,5 @@ BEGIN
   END IF;
 END $$;
 
--- Recommended: improves UPDATE payloads for realtime listeners
+-- Recommended for better UPDATE payloads for realtime listeners
 alter table public.contractors replica identity full;
