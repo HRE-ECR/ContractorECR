@@ -47,7 +47,7 @@ export default function App() {
         </Routes>
 
         <footer className="text-center text-xs text-slate-500 mt-6">
-          <p>© {new Date().getFullYear()} ContractorECR Admin:Jason.Edwards@hitachirail.com</p>
+          <p>© {new Date().getFullYear()} ContractorECR</p>
         </footer>
       </main>
     </div>
