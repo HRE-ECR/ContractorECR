@@ -2,6 +2,40 @@ import React from 'react'
 import { Navigate, Link, useLocation } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
+// Decode base64url (JWT uses base64url, not plain base64)
+function base64UrlDecode(str) {
+  if (!str) return null
+  const pad = '='.repeat((4 - (str.length % 4)) % 4)
+  const base64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/')
+  try {
+    return decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+  } catch {
+    try {
+      return atob(base64)
+    } catch {
+      return null
+    }
+  }
+}
+
+function getRoleFromAccessToken(accessToken) {
+  try {
+    const parts = String(accessToken || '').split('.')
+    if (parts.length < 2) return null
+    const json = base64UrlDecode(parts[1])
+    if (!json) return null
+    const payload = JSON.parse(json)
+    return payload?.app_metadata?.app_role || null
+  } catch {
+    return null
+  }
+}
+
 export default function ProtectedRoute({ children }) {
   const location = useLocation()
 
@@ -19,7 +53,11 @@ export default function ProtectedRoute({ children }) {
 
       const sess = data.session || null
       setSession(sess)
-      setRole(sess?.user?.app_metadata?.app_role || null)
+
+      // ✅ Read role from JWT access token (custom hook claim lives here)
+      const r = getRoleFromAccessToken(sess?.access_token)
+      setRole(r)
+
       setLoading(false)
     }
 
@@ -28,7 +66,7 @@ export default function ProtectedRoute({ children }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (!mounted) return
       setSession(sess || null)
-      setRole(sess?.user?.app_metadata?.app_role || null)
+      setRole(getRoleFromAccessToken(sess?.access_token))
     })
 
     return () => {
@@ -46,7 +84,7 @@ export default function ProtectedRoute({ children }) {
   if (!session) return <Navigate to="/login" />
 
   const normalizedRole = (role || '').toLowerCase()
-  const path = (location.pathname || '')
+  const path = location.pathname || ''
 
   const isDashboardRoute = path.startsWith('/dashboard')
   const isScreenRoute = path.startsWith('/screen')
@@ -75,7 +113,7 @@ export default function ProtectedRoute({ children }) {
       <div className="max-w-xl mx-auto bg-white border rounded p-5">
         <h1 className="text-xl font-bold mb-2">Access blocked</h1>
         <p className="text-slate-700">
-          Your account role could not be verified. Please log out and back in.
+          Your account role could not be verified from the access token. Please log out and back in.
           If it persists, contact Admin.
         </p>
         <div className="mt-4 flex gap-2">
