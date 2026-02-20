@@ -4,45 +4,36 @@ import { supabase } from '../supabaseClient'
 
 export default function ProtectedRoute({ children }) {
   const location = useLocation()
-
   const [loading, setLoading] = React.useState(true)
   const [session, setSession] = React.useState(null)
   const [role, setRole] = React.useState(null)
-  const [error, setError] = React.useState('')
 
   React.useEffect(() => {
     let mounted = true
 
     async function init() {
       setLoading(true)
-      setError('')
-
       const { data } = await supabase.auth.getSession()
-      const sess = data.session
       if (!mounted) return
 
+      const sess = data.session || null
       setSession(sess)
-
-      if (!sess?.user?.id) {
-        setLoading(false)
-        return
-      }
-
-      const { data: prof, error: profErr } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', sess.user.id)
-        .single()
-
-      if (!mounted) return
-
-      if (profErr) setError(profErr.message)
-      setRole(prof?.role || null)
+      setRole(sess?.user?.app_metadata?.app_role || null)
       setLoading(false)
     }
 
     init()
-    return () => { mounted = false }
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      if (!mounted) return
+      setSession(sess || null)
+      setRole(sess?.user?.app_metadata?.app_role || null)
+    })
+
+    return () => {
+      mounted = false
+      sub.subscription.unsubscribe()
+    }
   }, [])
 
   async function logout() {
@@ -54,19 +45,16 @@ export default function ProtectedRoute({ children }) {
   if (!session) return <Navigate to="/login" />
 
   const normalizedRole = (role || '').toLowerCase()
-
-  // Route-specific access rules
   const path = location.pathname || ''
   const isDashboardRoute = path.startsWith('/dashboard')
   const isScreenRoute = path.startsWith('/screen')
 
-  // New teamleaders are never allowed into protected screens until approved
+  // Awaiting approval
   if (normalizedRole === 'new_teamleader') {
     return (
       <div className="max-w-xl mx-auto bg-white border rounded p-5">
         <h1 className="text-xl font-bold mb-2">Account awaiting approval</h1>
         <p className="text-slate-700">Please contact Admin for team leader account approval.</p>
-        {error && <p className="text-red-600 mt-3">{error}</p>}
         <div className="mt-4 flex gap-2">
           <button onClick={logout} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
             Logout
@@ -79,15 +67,14 @@ export default function ProtectedRoute({ children }) {
     )
   }
 
-  // If role can't be read (null/empty), fail closed for protected routes
+  // Fail closed if claim missing
   if (!normalizedRole) {
     return (
       <div className="max-w-xl mx-auto bg-white border rounded p-5">
         <h1 className="text-xl font-bold mb-2">Access blocked</h1>
         <p className="text-slate-700">
-          Your account role could not be verified. Please contact Admin.
+          Your account role could not be verified. Please log out and back in. If it persists, contact Admin.
         </p>
-        {error && <p className="text-red-600 mt-3">{error}</p>}
         <div className="mt-4 flex gap-2">
           <button onClick={logout} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
             Logout
@@ -100,20 +87,17 @@ export default function ProtectedRoute({ children }) {
     )
   }
 
-  // Dashboard: only teamleader/admin
+  // /dashboard only for teamleader/admin
   if (isDashboardRoute) {
     const ok = normalizedRole === 'teamleader' || normalizedRole === 'admin'
     if (!ok) {
       return (
         <div className="max-w-xl mx-auto bg-white border rounded p-5">
           <h1 className="text-xl font-bold mb-2">Access denied</h1>
-          <p className="text-slate-700">
-            Your account does not have permission to view the Dashboard.
-          </p>
+          <p className="text-slate-700">You do not have permission to view the Dashboard.</p>
           <p className="text-xs text-slate-500 mt-2">
             Current role: <span className="font-mono">{role}</span>
           </p>
-          {error && <p className="text-red-600 mt-3">{error}</p>}
           <div className="mt-4 flex gap-2">
             <button onClick={logout} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
               Logout
@@ -127,20 +111,17 @@ export default function ProtectedRoute({ children }) {
     }
   }
 
-  // Screen display: display/teamleader/admin
+  // /screen for display/teamleader/admin
   if (isScreenRoute) {
     const ok = normalizedRole === 'display' || normalizedRole === 'teamleader' || normalizedRole === 'admin'
     if (!ok) {
       return (
         <div className="max-w-xl mx-auto bg-white border rounded p-5">
           <h1 className="text-xl font-bold mb-2">Access denied</h1>
-          <p className="text-slate-700">
-            Your account does not have permission to view Screen display.
-          </p>
+          <p className="text-slate-700">You do not have permission to view Screen display.</p>
           <p className="text-xs text-slate-500 mt-2">
             Current role: <span className="font-mono">{role}</span>
           </p>
-          {error && <p className="text-red-600 mt-3">{error}</p>}
           <div className="mt-4 flex gap-2">
             <button onClick={logout} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
               Logout
