@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient'
 
 export default function ProtectedRoute({ children }) {
   const location = useLocation()
+
   const [loading, setLoading] = React.useState(true)
   const [session, setSession] = React.useState(null)
   const [role, setRole] = React.useState(null)
@@ -45,7 +46,8 @@ export default function ProtectedRoute({ children }) {
   if (!session) return <Navigate to="/login" />
 
   const normalizedRole = (role || '').toLowerCase()
-  const path = location.pathname || ''
+  const path = (location.pathname || '')
+
   const isDashboardRoute = path.startsWith('/dashboard')
   const isScreenRoute = path.startsWith('/screen')
 
@@ -73,7 +75,8 @@ export default function ProtectedRoute({ children }) {
       <div className="max-w-xl mx-auto bg-white border rounded p-5">
         <h1 className="text-xl font-bold mb-2">Access blocked</h1>
         <p className="text-slate-700">
-          Your account role could not be verified. Please log out and back in. If it persists, contact Admin.
+          Your account role could not be verified. Please log out and back in.
+          If it persists, contact Admin.
         </p>
         <div className="mt-4 flex gap-2">
           <button onClick={logout} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
