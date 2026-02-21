@@ -160,6 +160,9 @@ export default function ScreenDisplay() {
   // Scroll container ref for auto-scroll
   const scrollRef = React.useRef(null)
 
+  // -----------------------------
+  // Dark mode persistence
+  // -----------------------------
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem('screenDisplayDarkMode')
@@ -181,7 +184,9 @@ export default function ScreenDisplay() {
     }
   }, [darkMode])
 
-  // Track fullscreen changes (works across most browsers + Safari fallback)
+  // -----------------------------
+  // Track fullscreen changes
+  // -----------------------------
   React.useEffect(() => {
     const update = () => {
       const fsEl = document.fullscreenElement || document.webkitFullscreenElement
@@ -191,7 +196,6 @@ export default function ScreenDisplay() {
 
     document.addEventListener('fullscreenchange', update)
     document.addEventListener('webkitfullscreenchange', update)
-
     return () => {
       document.removeEventListener('fullscreenchange', update)
       document.removeEventListener('webkitfullscreenchange', update)
@@ -207,18 +211,17 @@ export default function ScreenDisplay() {
         return
       }
 
-      // Request fullscreen on the page container if possible, else fallback to documentElement
       const target = scrollRef.current || document.documentElement
-
       if (target.requestFullscreen) await target.requestFullscreen()
       else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen()
     } catch (e) {
-      // Some environments block fullscreen unless triggered by direct user interaction (this is still a click)
-      // or if embedded in an iframe without permissions.
       setError('Fullscreen could not be enabled in this browser/environment.')
     }
   }
 
+  // -----------------------------
+  // Data loading
+  // -----------------------------
   const loadRef = React.useRef(null)
 
   async function load() {
@@ -267,7 +270,11 @@ export default function ScreenDisplay() {
   }, [])
 
   // -----------------------------
-  // Auto scroll up/down (only when content overflows)
+  // Auto scroll up/down
+  // - Only if content overflows ("text off screen")
+  // - Only starts after 5 seconds of NO input
+  // - Any input pauses + resets the 5s timer
+  // - Re-inits on fullscreen changes to avoid stuck state
   // -----------------------------
   React.useEffect(() => {
     const el = scrollRef.current
@@ -283,61 +290,83 @@ export default function ScreenDisplay() {
     let lastT = performance.now()
 
     // Tuning
-    const speedPxPerSec = 14 // slower = smaller
+    const speedPxPerSec = 14
     const edgePauseMs = 1400
-    const userPauseMs = 6000
-    let pauseUntil = 0
+    const inactivityMs = 5000 // <-- your requested "start after 5s no input"
 
+    // The time (performance.now) after which scrolling is allowed
+    let allowScrollAt = performance.now() + inactivityMs
+
+    const overflowNow = () => el.scrollHeight > el.clientHeight + 4
     const atBottom = () => el.scrollTop >= el.scrollHeight - el.clientHeight - 2
     const atTop = () => el.scrollTop <= 1
+
+    const noteUserActivity = () => {
+      // Any input pauses scrolling and restarts the 5s inactivity countdown
+      allowScrollAt = performance.now() + inactivityMs
+    }
+
+    // If user interacts with the scroll container or page, pause auto-scroll
+    el.addEventListener('wheel', noteUserActivity, { passive: true })
+    el.addEventListener('touchstart', noteUserActivity, { passive: true })
+    el.addEventListener('mousedown', noteUserActivity, { passive: true })
+    window.addEventListener('keydown', noteUserActivity)
+    window.addEventListener('mousemove', noteUserActivity, { passive: true })
+
+    // When the element resizes (fullscreen toggles), clientHeight changes.
+    // Use ResizeObserver to ensure overflow is re-evaluated correctly.
+    let ro = null
+    if (window.ResizeObserver) {
+      ro = new ResizeObserver(() => {
+        // Re-arm the inactivity timer gently when layout changes
+        allowScrollAt = performance.now() + Math.min(1200, inactivityMs)
+      })
+      ro.observe(el)
+    }
 
     const step = (t) => {
       const dt = (t - lastT) / 1000
       lastT = t
 
-      const overflow = el.scrollHeight > el.clientHeight + 4
-      if (!overflow) {
+      // Only scroll if content is actually off-screen
+      if (!overflowNow()) {
         rafId = requestAnimationFrame(step)
         return
       }
 
-      if (t < pauseUntil) {
+      // Only start after 5s of inactivity
+      if (t < allowScrollAt) {
         rafId = requestAnimationFrame(step)
         return
       }
 
+      // Move
       el.scrollTop += direction * speedPxPerSec * dt
 
+      // Edge handling: pause briefly then reverse
       if (direction > 0 && atBottom()) {
         direction = -1
-        pauseUntil = t + edgePauseMs
+        allowScrollAt = t + edgePauseMs
       } else if (direction < 0 && atTop()) {
         direction = 1
-        pauseUntil = t + edgePauseMs
+        allowScrollAt = t + edgePauseMs
       }
 
       rafId = requestAnimationFrame(step)
     }
 
-    const pauseForUser = () => {
-      pauseUntil = performance.now() + userPauseMs
-    }
-
-    el.addEventListener('wheel', pauseForUser, { passive: true })
-    el.addEventListener('touchstart', pauseForUser, { passive: true })
-    el.addEventListener('mousedown', pauseForUser, { passive: true })
-    window.addEventListener('keydown', pauseForUser)
-
     rafId = requestAnimationFrame(step)
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
-      el.removeEventListener('wheel', pauseForUser)
-      el.removeEventListener('touchstart', pauseForUser)
-      el.removeEventListener('mousedown', pauseForUser)
-      window.removeEventListener('keydown', pauseForUser)
+      el.removeEventListener('wheel', noteUserActivity)
+      el.removeEventListener('touchstart', noteUserActivity)
+      el.removeEventListener('mousedown', noteUserActivity)
+      window.removeEventListener('keydown', noteUserActivity)
+      window.removeEventListener('mousemove', noteUserActivity)
+      if (ro) ro.disconnect()
     }
-  }, [items.length, darkMode])
+  }, [items.length, darkMode, isFullscreen])
 
   // Data buckets
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
@@ -401,6 +430,7 @@ export default function ScreenDisplay() {
     <section
       ref={scrollRef}
       className={`space-y-5 p-3 rounded-xl ${pageBg} h-screen overflow-y-auto`}
+      style={{ height: '100vh' }} // helps some fullscreen setups keep correct height
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -458,12 +488,7 @@ export default function ScreenDisplay() {
       </p>
 
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
-        <SectionHeader
-          title="Awaiting sign-in confirmation"
-          count={awaiting.length}
-          tone="green"
-          darkMode={darkMode}
-        />
+        <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
@@ -481,7 +506,6 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
-
               {awaiting.map((i) => (
                 <tr
                   key={i.id}
@@ -520,20 +544,11 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
-
               {onSite.map((i) => {
                 const awaitingSignOut = !!i.signout_requested
                 const rowBg = awaitingSignOut ? signoutRowBg : ''
-                const mainCls = awaitingSignOut
-                  ? signoutTextMain
-                  : darkMode
-                    ? 'text-slate-100'
-                    : 'text-slate-900'
-                const subCls = awaitingSignOut
-                  ? signoutTextSub
-                  : darkMode
-                    ? 'text-slate-200'
-                    : 'text-slate-700'
+                const mainCls = awaitingSignOut ? signoutTextMain : darkMode ? 'text-slate-100' : 'text-slate-900'
+                const subCls = awaitingSignOut ? signoutTextSub : darkMode ? 'text-slate-200' : 'text-slate-700'
 
                 return (
                   <tr
