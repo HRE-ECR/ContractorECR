@@ -109,17 +109,13 @@ function formatStaffEmail(email) {
   if (!email) return ''
   const e = String(email).trim()
   if (!e) return ''
-
   const local = e.split('@')[0] || ''
   if (!local) return ''
-
   const parts = local.split('.').filter(Boolean)
   const firstPart = parts[0] || local
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
-
   const initial = (firstPart[0] || '').toUpperCase()
   const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
-
   if (!initial || !surname) return local
   return `${initial}.${surname}`
 }
@@ -145,6 +141,18 @@ function SectionHeader({ title, count, tone = 'slate', darkMode }) {
   )
 }
 
+function isOverflowing(el) {
+  if (!el) return false
+  return el.scrollHeight > el.clientHeight + 4
+}
+
+function getBestScrollElement(sectionEl) {
+  // Prefer the section if it truly scrolls.
+  if (sectionEl && isOverflowing(sectionEl)) return sectionEl
+  // Fall back to the document scroller (common in some layouts).
+  return document.scrollingElement || document.documentElement
+}
+
 export default function ScreenDisplay() {
   const [items, setItems] = React.useState([])
   const [loading, setLoading] = React.useState(true)
@@ -157,7 +165,13 @@ export default function ScreenDisplay() {
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = React.useState(false)
 
-  // Scroll container ref for auto-scroll
+  // ✅ TEMP: Auto-scroll toggle button (remove later)
+  const [autoScrollEnabled, setAutoScrollEnabled] = React.useState(false)
+
+  // Optional tiny status (helps verify it’s working)
+  const [scrollStatus, setScrollStatus] = React.useState('')
+
+  // Scroll container ref
   const scrollRef = React.useRef(null)
 
   // -----------------------------
@@ -193,7 +207,6 @@ export default function ScreenDisplay() {
       setIsFullscreen(!!fsEl)
     }
     update()
-
     document.addEventListener('fullscreenchange', update)
     document.addEventListener('webkitfullscreenchange', update)
     return () => {
@@ -210,7 +223,6 @@ export default function ScreenDisplay() {
         else if (document.webkitExitFullscreen) await document.webkitExitFullscreen()
         return
       }
-
       const target = scrollRef.current || document.documentElement
       if (target.requestFullscreen) await target.requestFullscreen()
       else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen()
@@ -270,81 +282,90 @@ export default function ScreenDisplay() {
   }, [])
 
   // -----------------------------
-  // Auto scroll up/down
-  // - Only if content overflows ("text off screen")
-  // - Starts after 5 seconds of NO user-intent input
-  // - Any user-intent input pauses + resets the 5s timer
-  // - Re-inits on fullscreen changes
-  //
-  // IMPORTANT: We do NOT use mousemove as activity because many kiosk setups
-  // constantly emit tiny mousemove events, preventing "idle" from ever happening.
+  // Auto scroll up/down (TEMP toggle)
+  // - Only runs if autoScrollEnabled = true
+  // - Starts after 5s of no user-intent input
+  // - Works in fullscreen by re-evaluating scroll element
   // -----------------------------
   React.useEffect(() => {
-    const el = scrollRef.current
+    if (!autoScrollEnabled) {
+      setScrollStatus('')
+      return
+    }
+
+    const sectionEl = scrollRef.current
+    const el = getBestScrollElement(sectionEl)
     if (!el) return
 
+    // Respect reduced motion
     const prefersReduced =
       window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReduced) return
+    if (prefersReduced) {
+      setScrollStatus('Auto-scroll disabled (reduced motion)')
+      return
+    }
 
     let rafId = null
-    let direction = 1 // 1 = down, -1 = up
+    let direction = 1 // 1 down, -1 up
     let lastT = performance.now()
 
-    // Tuning
     const speedPxPerSec = 14
     const edgePauseMs = 1400
-    const inactivityMs = 5000 // start after 5s idle
+    const inactivityMs = 5000
 
-    // Time after which scrolling is allowed
     let allowScrollAt = performance.now() + inactivityMs
 
-    const overflowNow = () => el.scrollHeight > el.clientHeight + 4
     const atBottom = () => el.scrollTop >= el.scrollHeight - el.clientHeight - 2
     const atTop = () => el.scrollTop <= 1
+    const overflowNow = () => isOverflowing(el)
 
     const noteUserIntent = () => {
       allowScrollAt = performance.now() + inactivityMs
     }
 
-    // User-intent events only (no mousemove!)
+    // Only user-intent events (avoid mousemove jitter)
     el.addEventListener('wheel', noteUserIntent, { passive: true })
     el.addEventListener('touchstart', noteUserIntent, { passive: true })
     el.addEventListener('mousedown', noteUserIntent, { passive: true })
     el.addEventListener('pointerdown', noteUserIntent, { passive: true })
     window.addEventListener('keydown', noteUserIntent)
 
-    // Re-evaluate overflow when size changes (fullscreen toggles / layout changes)
+    // Observe size changes (fullscreen/layout)
     let ro = null
     if (window.ResizeObserver) {
       ro = new ResizeObserver(() => {
-        // Don’t count as user input; just ensure we don't jump on next frame
         lastT = performance.now()
       })
       ro.observe(el)
     }
 
+    // Initial status (helps confirm target)
+    setScrollStatus(
+      `Auto-scroll ON • target: ${el === sectionEl ? 'section' : 'page'} • overflow: ${overflowNow() ? 'yes' : 'no'}`
+    )
+
     const step = (t) => {
-      // cap dt to avoid huge jumps after tab pause
       const dt = Math.min((t - lastT) / 1000, 0.06)
       lastT = t
 
-      // Only scroll if content is actually off-screen
+      // Only scroll if there is overflow (text off-screen)
       if (!overflowNow()) {
+        // Keep status updated
+        setScrollStatus((prev) => (prev.includes('overflow: no') ? prev : prev.replace('overflow: yes', 'overflow: no')))
         rafId = requestAnimationFrame(step)
         return
+      } else {
+        setScrollStatus((prev) => (prev.includes('overflow: yes') ? prev : prev.replace('overflow: no', 'overflow: yes')))
       }
 
-      // Only start after 5s of inactivity
+      // Wait for inactivity
       if (t < allowScrollAt) {
         rafId = requestAnimationFrame(step)
         return
       }
 
-      // Move
       el.scrollTop += direction * speedPxPerSec * dt
 
-      // Edge handling: pause briefly then reverse
       if (direction > 0 && atBottom()) {
         direction = -1
         allowScrollAt = t + edgePauseMs
@@ -367,7 +388,7 @@ export default function ScreenDisplay() {
       window.removeEventListener('keydown', noteUserIntent)
       if (ro) ro.disconnect()
     }
-  }, [items.length, darkMode, isFullscreen])
+  }, [autoScrollEnabled, items.length, darkMode, isFullscreen])
 
   // Data buckets
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
@@ -440,9 +461,10 @@ export default function ScreenDisplay() {
             {lastUpdated ? ` • Last updated: ${formatDayMonthTime(lastUpdated)}` : ''}
           </p>
           {error && <p className="text-red-400 mt-2">{error}</p>}
+          {scrollStatus && <p className={`mt-1 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{scrollStatus}</p>}
         </div>
 
-        {/* Buttons: Dark mode + Fullscreen */}
+        {/* Buttons: Dark mode + Fullscreen + TEMP Auto-scroll */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -470,6 +492,25 @@ export default function ScreenDisplay() {
             title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
             {isFullscreen ? '⤢ Exit' : '⤢ Full'}
+          </button>
+
+          {/* TEMP: Auto-scroll toggle */}
+          <button
+            type="button"
+            onClick={() => setAutoScrollEnabled((v) => !v)}
+            className={
+              autoScrollEnabled
+                ? (darkMode
+                    ? 'px-3 py-2 rounded-lg border border-emerald-700 bg-emerald-900/40 hover:bg-emerald-900/55 text-emerald-100 text-sm'
+                    : 'px-3 py-2 rounded-lg border border-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-sm')
+                : (darkMode
+                    ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                    : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm')
+            }
+            aria-label={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
+            title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
+          >
+            {autoScrollEnabled ? '⇵ Scroll ON' : '⇵ Scroll OFF'}
           </button>
         </div>
       </div>
@@ -506,7 +547,6 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
-
               {awaiting.map((i) => (
                 <tr
                   key={i.id}
