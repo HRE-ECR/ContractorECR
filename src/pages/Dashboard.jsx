@@ -25,10 +25,9 @@ const AREA_SHORT_MAP = {
   '2CL': '2CL',
   '3CL': '3CL',
   '4CL': '4CL',
-  Other: 'Other',
 }
 
-const SHORT_ORDER = ['M1', 'M2', 'Insp', 'RShed', '1CL', '2CL', '3CL', '4CL', 'Other']
+const SHORT_ORDER = ['M1', 'M2', 'Insp', 'RShed', '1CL', '2CL', '3CL', '4CL']
 
 const STANDARD_DB_AREAS = [
   'Maint-1',
@@ -49,45 +48,85 @@ function isOtherArea(a) {
   return !STANDARD_DB_AREAS.includes(s) && !Object.prototype.hasOwnProperty.call(AREA_SHORT_MAP, s)
 }
 
-function shortArea(a) {
+function extractOtherText(a) {
   if (!a) return ''
   const s = String(a).trim()
   if (!s) return ''
-  if (s.toLowerCase().startsWith('other:')) return 'Other'
-  if (AREA_SHORT_MAP[s]) return AREA_SHORT_MAP[s]
-  if (isOtherArea(s)) return 'Other'
-  return s
+  // Accept "Other:" in any case
+  const lower = s.toLowerCase()
+  if (lower.startsWith('other:')) {
+    const txt = s.slice(s.indexOf(':') + 1).trim()
+    return txt
+  }
+  // If it's a non-standard area and not in the map, treat it as user-entered text
+  if (isOtherArea(s)) return s
+  return ''
 }
 
-function shortAreasList(areas) {
+function shortStandardArea(a) {
+  if (!a) return ''
+  const s = String(a).trim()
+  if (!s) return ''
+  if (AREA_SHORT_MAP[s]) return AREA_SHORT_MAP[s]
+  return ''
+}
+
+/**
+ * Areas for tables:
+ * - Show standard areas shortened (M1, M2, Insp, RShed, 1CL...)
+ * - For "Other: Yard", show "Yard" (no word Other)
+ * - For any unknown/non-standard area, show the raw text
+ */
+function areasTextForTables(areas) {
   const arr = Array.isArray(areas) ? areas : []
-  const set = new Set()
-  let hasOther = false
+  const standards = new Set()
+  const others = new Set()
 
   for (const a of arr) {
-    const s = shortArea(a)
-    if (!s) continue
-    if (s === 'Other') hasOther = true
-    else set.add(s)
+    const std = shortStandardArea(a)
+    if (std) {
+      standards.add(std)
+      continue
+    }
+    const oth = extractOtherText(a)
+    if (oth) others.add(oth)
   }
-  if (hasOther) set.add('Other')
 
-  const list = Array.from(set)
-  list.sort((x, y) => SHORT_ORDER.indexOf(x) - SHORT_ORDER.indexOf(y))
-  return list
+  const stdList = Array.from(standards)
+  stdList.sort((x, y) => SHORT_ORDER.indexOf(x) - SHORT_ORDER.indexOf(y))
+
+  const otherList = Array.from(others)
+  otherList.sort((x, y) => x.localeCompare(y))
+
+  return [...stdList, ...otherList].join(', ')
 }
 
-function shortAreasText(areas) {
-  return shortAreasList(areas).join(', ')
+/**
+ * Areas for counters:
+ * - Keep counting standard areas as before
+ * - "Other" counter counts contractors who had ANY other entry
+ */
+function hasAnyOther(areas) {
+  const arr = Array.isArray(areas) ? areas : []
+  for (const a of arr) {
+    const oth = extractOtherText(a)
+    if (oth) return true
+  }
+  return false
 }
 
 // -----------------------------
 // Utilities
 // -----------------------------
-function formatDate(value) {
+function formatDateDayMonthTime(value) {
   if (!value) return ''
   try {
-    return new Date(value).toLocaleString()
+    const d = new Date(value)
+    // Day + Month only, no year
+    const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
+    // Time without seconds
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    return `${date} ${time}`
   } catch {
     return String(value)
   }
@@ -134,9 +173,7 @@ function decodeJwtPayload(token) {
   if (parts.length < 2) return null
 
   try {
-    // base64url -> base64
     let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    // pad to length multiple of 4
     while (b64.length % 4) b64 += '='
     const json = atob(b64)
     return JSON.parse(json)
@@ -170,7 +207,6 @@ async function getAppRoleFromAuth() {
     const role = payload?.app_metadata?.app_role || payload?.user_role || null
     if (role) return role
 
-    // last-chance mirror (often blank)
     return parsed?.currentSession?.user?.app_metadata?.app_role || null
   } catch {
     return null
@@ -183,29 +219,23 @@ async function getAppRoleFromAuth() {
 function Summary({ items }) {
   const onSite = items.filter((i) => i.status !== 'signed_out' && !i.signed_out_at)
 
-  // Count contractors per area (contractor counted for each area they selected)
   const counts = {}
   SHORT_ORDER.forEach((k) => {
-    if (k !== 'Other') counts[k] = 0
+    counts[k] = 0
   })
   let otherCount = 0
 
   onSite.forEach((i) => {
     const areas = Array.isArray(i.areas) ? i.areas : []
-    let hasOther = false
 
+    // per-area counting for standard
     areas.forEach((a) => {
-      const s = shortArea(a)
-      if (!s) return
-      if (s === 'Other') {
-        hasOther = true
-      } else if (Object.prototype.hasOwnProperty.call(counts, s)) {
-        counts[s] += 1
-      }
+      const s = shortStandardArea(a)
+      if (s && Object.prototype.hasOwnProperty.call(counts, s)) counts[s] += 1
     })
 
-    // Other is contractor-level count (not per-area)
-    if (hasOther) otherCount += 1
+    // contractor-level other count
+    if (hasAnyOther(areas)) otherCount += 1
   })
 
   // Deep elegant blue tiles with high contrast white text
@@ -224,13 +254,11 @@ function Summary({ items }) {
   tiles.push(tile('Total', onSite.length))
 
   SHORT_ORDER.forEach((k) => {
-    if (k === 'Other') {
-      if (otherCount > 0) tiles.push(tile('Other', otherCount))
-      return
-    }
     const v = counts[k] || 0
     if (v > 0) tiles.push(tile(k, v))
   })
+
+  if (otherCount > 0) tiles.push(tile('Other', otherCount))
 
   return (
     <div className="mb-4">
@@ -251,8 +279,8 @@ function AwaitingRow({ item, onConfirm }) {
       </td>
       <td className="px-2 py-2">{item.company}</td>
       <td className="px-2 py-2 whitespace-nowrap">{item.phone}</td>
-      <td className="px-2 py-2">{shortAreasText(item.areas)}</td>
-      <td className="px-2 py-2 whitespace-nowrap">{formatDate(item.signed_in_at)}</td>
+      <td className="px-2 py-2">{areasTextForTables(item.areas)}</td>
+      <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(item.signed_in_at)}</td>
       <td className="px-2 py-2">
         <input
           value={fob}
@@ -281,6 +309,7 @@ export default function Dashboard() {
   const [loading, setLoading] = React.useState(true)
   const [refreshing, setRefreshing] = React.useState(false)
   const [isAdmin, setIsAdmin] = React.useState(false)
+  const [appRole, setAppRole] = React.useState(null)
   const [error, setError] = React.useState('')
 
   // Signed-out display controls:
@@ -294,17 +323,17 @@ export default function Dashboard() {
     return v.length > 0
   }
 
-  // Sign-out rule:
-  // - Teamleader: must have signout_requested = true
-  // - If fob issued => must have fob_returned = true
-  // - Admin: keep conservative rule (fob => require returned, no fob => require requested)
   function canConfirmSignOut(item) {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
+
+    // Admin: conservative
     if (isAdmin) {
       if (fobIssued) return !!item.fob_returned
       return !!item.signout_requested
     }
+
+    // Teamleader: must request signout, and if fob then returned
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -322,18 +351,16 @@ export default function Dashboard() {
   const loadRef = React.useRef(null)
 
   async function load() {
-    // reset only data errors (keep warning style minimal)
     setError('')
 
-    // ✅ NO profiles query here (prevents Zscaler block)
     const role = await getAppRoleFromAuth()
+    setAppRole(role)
     setIsAdmin(role === 'admin')
 
-    // soft warning if missing role (data still loads)
-    if (!role) {
-      setError(
-        'Role not found in token. If you just enabled/changed the hook, log out and log in again (or refresh session) so a new token is issued.'
-      )
+    // B) Display role cannot access dashboard at all
+    if (role === 'Display') {
+      setItems([])
+      return
     }
 
     const { data, error: listErr } = await supabase
@@ -359,8 +386,10 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime: refresh when contractors changes
+  // Realtime: refresh when contractors changes (only if not Display)
   React.useEffect(() => {
+    if (appRole === 'Display') return
+
     let debounceTimer = null
     const channel = supabase
       .channel('contractors-db-changes')
@@ -376,7 +405,7 @@ export default function Dashboard() {
       if (debounceTimer) clearTimeout(debounceTimer)
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [appRole])
 
   async function handleRefresh() {
     setRefreshing(true)
@@ -403,7 +432,7 @@ export default function Dashboard() {
       sign_in_confirmed_at: new Date().toISOString(),
       sign_in_confirmed_by: uid,
       sign_in_confirmed_by_email: email,
-      fob_number: finalFob ? finalFob : null, // null = "no fob issued"
+      fob_number: finalFob ? finalFob : null,
     }
 
     const { error } = await supabase.from('contractors').update(updatePayload).eq('id', itemId)
@@ -441,7 +470,6 @@ export default function Dashboard() {
     if (item && !hasFobIssued(item)) return
 
     const prevItems = items
-    // optimistic UI
     setItems((curr) => curr.map((i) => (i.id === itemId ? { ...i, fob_returned: value } : i)))
 
     const { error } = await supabase.from('contractors').update({ fob_returned: value }).eq('id', itemId)
@@ -475,7 +503,7 @@ export default function Dashboard() {
       surname: i.surname,
       company: i.company,
       phone: i.phone,
-      areas: shortAreasText(i.areas),
+      areas: areasTextForTables(i.areas),
       status: i.status,
       fob_number: i.fob_number || '',
       fob_returned: i.fob_returned ? 'true' : 'false',
@@ -500,10 +528,24 @@ export default function Dashboard() {
 
   if (loading) return <div className="p-4">Loading...</div>
 
+  // Hard block for Display role (B)
+  if (appRole === 'Display') {
+    return (
+      <div className="p-6 max-w-xl mx-auto">
+        <div className="border border-slate-200 rounded-lg p-4 bg-white shadow-sm">
+          <h2 className="text-xl font-bold mb-2">Access denied</h2>
+          <p className="text-slate-700">
+            Display accounts cannot access the Dashboard. Please use the Screen Display page.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
 
-  // Signed-out filtering per your rules:
+  // Signed-out filtering:
   // default: last 12 hours + 5
   // expanded: last 4 days + 30
   const now = Date.now()
@@ -614,8 +656,8 @@ export default function Dashboard() {
                   </td>
                   <td className="px-2 py-2">{i.company}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
-                  <td className="px-2 py-2">{shortAreasText(i.areas)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatDate(i.signed_in_at)}</td>
+                  <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{shortEmail(i.sign_in_confirmed_by_email) || '-'}</td>
 
@@ -723,11 +765,11 @@ export default function Dashboard() {
                 </td>
                 <td className="px-2 py-2">{i.company}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
-                <td className="px-2 py-2">{shortAreasText(i.areas)}</td>
+                <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{i.fob_returned ? 'Yes' : 'No'}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{formatDate(i.signed_in_at)}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{formatDate(i.signed_out_at)}</td>
+                <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
+                <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{shortEmail(i.sign_in_confirmed_by_email) || '-'}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{shortEmail(i.signed_out_by_email) || '-'}</td>
               </tr>
