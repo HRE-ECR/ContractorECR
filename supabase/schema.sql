@@ -1,11 +1,12 @@
 -- ============================================
--- ContractorECR schema.sql (clean)
+-- ContractorECR schema.sql (updated)
 -- Includes:
 -- - profiles + roles (New_Teamleader/teamleader/admin/Display)
 -- - contractors table (areas text[])
 -- - RLS policies
 -- - realtime publication enablement
 -- - Custom Access Token Hook (JWT role claim)
+-- - Cleanup retention: 30 days (optional pg_cron schedule)
 -- ============================================
 
 -- Extensions
@@ -51,7 +52,6 @@ begin
   insert into public.profiles (id, email, role)
   values (new.id, new.email, 'New_Teamleader')
   on conflict do nothing;
-
   return new;
 end;
 $$;
@@ -138,6 +138,7 @@ create trigger set_timestamp
 create index if not exists contractors_phone_open_idx on public.contractors (phone, signed_out_at);
 create index if not exists contractors_status_idx on public.contractors (status);
 create index if not exists contractors_signed_in_idx on public.contractors (signed_in_at desc);
+create index if not exists contractors_signed_out_idx on public.contractors (signed_out_at desc);
 
 -- =========================
 -- Public sign-out request function (used by SignOut page)
@@ -248,8 +249,6 @@ exception when others then
 end;
 $$;
 
--- Grant hook execution to Supabase Auth role and revoke from public API roles
--- Supabase recommends these grants/revokes for Postgres function hooks. [1](blob:https://outlook.office.com/0ddcb807-0167-4c68-abb0-20ee967fc75d)
 grant usage on schema public to supabase_auth_admin;
 grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
 revoke execute on function public.custom_access_token_hook(jsonb) from anon, authenticated, public;
@@ -309,9 +308,9 @@ to authenticated
 using (public.is_admin());
 
 -- =========================
--- Cleanup function
+-- Cleanup function (RETENTION: 30 DAYS)
 -- =========================
-create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 7)
+create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 30)
 returns void
 language plpgsql
 security definer
@@ -323,7 +322,29 @@ begin
 end;
 $$;
 
+-- Keep execution restricted (service_role is ideal for scheduled jobs; authenticated kept from your original)
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
+
+-- =========================
+-- OPTIONAL: Schedule daily cleanup via pg_cron (if available)
+-- Runs at 03:00 daily: keeps 30 days of data
+-- =========================
+DO $$
+BEGIN
+  IF EXISTS (select 1 from pg_extension where extname = 'pg_cron') THEN
+    -- schedule named job if not already present
+    IF NOT EXISTS (select 1 from cron.job where jobname = 'cleanup_contractors_daily') THEN
+      PERFORM cron.schedule(
+        'cleanup_contractors_daily',
+        '0 3 * * *',
+        $$select public.cleanup_old_contractor_data(30);$$
+      );
+    END IF;
+  END IF;
+EXCEPTION WHEN undefined_table THEN
+  -- cron.job table not present (pg_cron not available), ignore safely
+  NULL;
+END $$;
 
 -- =========================
 -- Realtime (Postgres Changes) enablement
