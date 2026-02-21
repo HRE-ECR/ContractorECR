@@ -109,7 +109,7 @@ function formatStaffEmail(email) {
 // -----------------------------
 // Solid section header (minimal height)
 // -----------------------------
-function SectionHeader({ title, count, tone = 'slate', darkMode }) {
+function SectionHeader({ title, count, tone = 'slate' }) {
   const tones = {
     slate: 'bg-slate-900 text-white',
     blue: 'bg-[#0b3a5a] text-white',
@@ -124,6 +124,85 @@ function SectionHeader({ title, count, tone = 'slate', darkMode }) {
       </div>
     </div>
   )
+}
+
+/**
+ * Ping-pong auto-scroll hook:
+ * - Scrolls down → pauses → scrolls up → pauses → repeats.
+ * - Does NOT bail out if overflow isn't ready yet (prevents "only scrolls after alt-tab").
+ * - Resyncs timing when tab becomes visible/focused.
+ */
+function usePingPongAutoScroll({ ref, enabled, speedPxPerSec = 18, pauseMs = 1200, resetKey }) {
+  React.useEffect(() => {
+    if (!enabled) return
+
+    const el = ref.current
+    if (!el) return
+
+    // Reset to top each time we restart
+    el.scrollTop = 0
+
+    let rafId = null
+    let last = performance.now()
+    let dir = 1 // 1 down, -1 up
+    let phase = 'scroll' // 'scroll' | 'pause'
+    let pauseUntil = 0
+
+    const step = (now) => {
+      const node = ref.current
+      if (!node) return
+
+      // If tab was inactive, avoid huge dt jump
+      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)) // clamp dt
+      last = now
+
+      // Always recompute overflow — layout can change after fonts load
+      const maxScroll = Math.max(0, node.scrollHeight - node.clientHeight)
+
+      if (maxScroll <= 1) {
+        // No overflow yet: keep checking (DON'T bail)
+        node.scrollTop = 0
+        rafId = requestAnimationFrame(step)
+        return
+      }
+
+      if (phase === 'pause') {
+        if (now >= pauseUntil) phase = 'scroll'
+        rafId = requestAnimationFrame(step)
+        return
+      }
+
+      // phase === 'scroll'
+      node.scrollTop = Math.min(maxScroll, Math.max(0, node.scrollTop + dir * speedPxPerSec * dt))
+
+      const atTop = node.scrollTop <= 0.5
+      const atBottom = node.scrollTop >= maxScroll - 0.5
+
+      if ((dir === 1 && atBottom) || (dir === -1 && atTop)) {
+        phase = 'pause'
+        pauseUntil = now + pauseMs
+        dir *= -1
+      }
+
+      rafId = requestAnimationFrame(step)
+    }
+
+    const resync = () => {
+      // Reset timing so animation continues smoothly when returning to the tab/window
+      last = performance.now()
+    }
+
+    document.addEventListener('visibilitychange', resync)
+    window.addEventListener('focus', resync)
+
+    rafId = requestAnimationFrame(step)
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      document.removeEventListener('visibilitychange', resync)
+      window.removeEventListener('focus', resync)
+    }
+  }, [enabled, ref, speedPxPerSec, pauseMs, resetKey])
 }
 
 export default function ScreenDisplay() {
@@ -143,10 +222,12 @@ export default function ScreenDisplay() {
   const awaitingScrollRef = React.useRef(null)
 
   // -----------------------------
-  // Inject a tiny global style for hiding nav in fullscreen
+  // Global styles:
+  // - Hide nav in fullscreen
+  // - Hide scrollbars until hover (mouse near)
   // -----------------------------
   React.useEffect(() => {
-    const styleId = 'screen-display-fullscreen-style'
+    const styleId = 'screen-display-global-style'
     if (!document.getElementById(styleId)) {
       const style = document.createElement('style')
       style.id = styleId
@@ -155,12 +236,36 @@ export default function ScreenDisplay() {
         body.screen-display-fullscreen header { display: none !important; }
         body.screen-display-fullscreen .app-navbar { display: none !important; }
         body.screen-display-fullscreen .navbar { display: none !important; }
+
+        /* Hide scrollbars until hover */
+        .scrollbar-hide-until-hover {
+          scrollbar-width: none;       /* Firefox */
+          -ms-overflow-style: none;    /* IE/Edge legacy */
+        }
+        .scrollbar-hide-until-hover::-webkit-scrollbar {
+          width: 0px;
+          height: 0px;
+        }
+        .scrollbar-hide-until-hover:hover {
+          scrollbar-width: thin;       /* Firefox */
+        }
+        .scrollbar-hide-until-hover:hover::-webkit-scrollbar {
+          width: 10px;
+          height: 10px;
+        }
+        .scrollbar-hide-until-hover:hover::-webkit-scrollbar-thumb {
+          background: rgba(100,116,139,0.55);
+          border-radius: 999px;
+        }
+        .scrollbar-hide-until-hover:hover::-webkit-scrollbar-track {
+          background: rgba(15,23,42,0.08);
+        }
       `
       document.head.appendChild(style)
     }
   }, [])
 
-  // Keep body class in sync
+  // Keep body class in sync (fullscreen hides nav)
   React.useEffect(() => {
     try {
       document.body.classList.toggle('screen-display-fullscreen', isFullscreen)
@@ -328,72 +433,23 @@ export default function ScreenDisplay() {
   const shouldAutoScrollSignedIn = onSite.length > SIGNED_IN_VISIBLE_ROWS
   const shouldAutoScrollAwaiting = awaiting.length > AWAITING_VISIBLE_ROWS
 
-  // -----------------------------
-  // Auto scroll (ping-pong: down -> pause -> up -> pause)
-  // -----------------------------
-  function usePingPongAutoScroll(ref, enabled, key) {
-    React.useEffect(() => {
-      if (!enabled) return
-      const el = ref.current
-      if (!el) return
+  // ✅ Auto-scroll: down/up with pauses at top & bottom
+  // resetKey uses lastUpdated to force a clean restart after data refresh
+  usePingPongAutoScroll({
+    ref: signedInScrollRef,
+    enabled: shouldAutoScrollSignedIn,
+    speedPxPerSec: 18,
+    pauseMs: 1200,
+    resetKey: `${onSite.length}-${lastUpdated || 0}`,
+  })
 
-      // Ensure we start at top whenever data changes
-      el.scrollTop = 0
-
-      // If no vertical overflow, do nothing
-      if (el.scrollHeight <= el.clientHeight + 1) return
-
-      let rafId = null
-      let last = performance.now()
-      let dir = 1 // 1 = down, -1 = up
-      let phase = 'scroll' // 'scroll' | 'pause'
-      let pauseUntil = 0
-
-      const SPEED_PX_PER_SEC = 18
-      const PAUSE_MS = 1200
-
-      const step = (now) => {
-        const current = ref.current
-        if (!current) return
-
-        const dt = Math.max(0, (now - last) / 1000)
-        last = now
-
-        const maxScroll = Math.max(0, current.scrollHeight - current.clientHeight)
-
-        if (phase === 'pause') {
-          if (now >= pauseUntil) phase = 'scroll'
-          rafId = requestAnimationFrame(step)
-          return
-        }
-
-        // phase === 'scroll'
-        current.scrollTop = Math.min(maxScroll, Math.max(0, current.scrollTop + dir * SPEED_PX_PER_SEC * dt))
-
-        const atTop = current.scrollTop <= 0.5
-        const atBottom = current.scrollTop >= maxScroll - 0.5
-
-        if ((dir === 1 && atBottom) || (dir === -1 && atTop)) {
-          // Pause at edge, then reverse direction
-          phase = 'pause'
-          pauseUntil = now + PAUSE_MS
-          dir *= -1
-        }
-
-        rafId = requestAnimationFrame(step)
-      }
-
-      rafId = requestAnimationFrame(step)
-      return () => {
-        if (rafId) cancelAnimationFrame(rafId)
-      }
-      // key forces restart when dataset changes meaningfully
-    }, [enabled, ref, key])
-  }
-
-  // Restart scroll loops when row counts change (keeps behaviour stable)
-  usePingPongAutoScroll(signedInScrollRef, shouldAutoScrollSignedIn, onSite.length)
-  usePingPongAutoScroll(awaitingScrollRef, shouldAutoScrollAwaiting, awaiting.length)
+  usePingPongAutoScroll({
+    ref: awaitingScrollRef,
+    enabled: shouldAutoScrollAwaiting,
+    speedPxPerSec: 18,
+    pauseMs: 1200,
+    resetKey: `${awaiting.length}-${lastUpdated || 0}`,
+  })
 
   // Counts
   const counts = {}
@@ -441,7 +497,7 @@ export default function ScreenDisplay() {
   const signoutTextMain = darkMode ? 'text-rose-50' : 'text-rose-950'
   const signoutTextSub = darkMode ? 'text-rose-100/95' : 'text-rose-900'
 
-  // Compact badge styles (same pill shape, less padding)
+  // Compact badge styles
   const signoutBadgeCls = darkMode
     ? 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-300/30 bg-rose-950/30 text-rose-50'
     : 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-300 bg-rose-100 text-rose-900'
@@ -515,15 +571,15 @@ export default function ScreenDisplay() {
         “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
       </p>
 
-      {/* Awaiting sign-in: auto-hide when empty; lock to 2 rows then ping-pong scroll */}
+      {/* Awaiting sign-in: auto-hide when empty; lock to 2 rows then auto-scroll */}
       {awaiting.length > 0 && (
         <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
-          <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
+          <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" />
 
           <div className="overflow-x-auto">
             <div
               ref={awaitingScrollRef}
-              className="overflow-y-auto"
+              className={`overflow-y-auto scrollbar-hide-until-hover`}
               style={{ maxHeight: shouldAutoScrollAwaiting ? awaitingMaxHeight : 'none' }}
             >
               <table className="min-w-full">
@@ -561,14 +617,14 @@ export default function ScreenDisplay() {
         </div>
       )}
 
-      {/* Signed-in: lock to 5 rows then ping-pong auto scroll */}
+      {/* Signed-in: lock to 5 rows then auto-scroll */}
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
-        <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" darkMode={darkMode} />
+        <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" />
 
         <div className="overflow-x-auto">
           <div
             ref={signedInScrollRef}
-            className="overflow-y-auto"
+            className={`overflow-y-auto scrollbar-hide-until-hover`}
             style={{ maxHeight: shouldAutoScrollSignedIn ? signedInMaxHeight : 'none' }}
           >
             <table className="min-w-full">
