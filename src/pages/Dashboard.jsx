@@ -52,13 +52,11 @@ function extractOtherText(a) {
   if (!a) return ''
   const s = String(a).trim()
   if (!s) return ''
-  // Accept "Other:" in any case
   const lower = s.toLowerCase()
   if (lower.startsWith('other:')) {
     const txt = s.slice(s.indexOf(':') + 1).trim()
     return txt
   }
-  // If it's a non-standard area and not in the map, treat it as user-entered text
   if (isOtherArea(s)) return s
   return ''
 }
@@ -103,8 +101,7 @@ function areasTextForTables(areas) {
 
 /**
  * Areas for counters:
- * - Keep counting standard areas as before
- * - "Other" counter counts contractors who had ANY other entry
+ * "Other" counter counts contractors who had ANY other entry
  */
 function hasAnyOther(areas) {
   const arr = Array.isArray(areas) ? areas : []
@@ -122,19 +119,39 @@ function formatDateDayMonthTime(value) {
   if (!value) return ''
   try {
     const d = new Date(value)
-    // Day + Month only, no year
-    const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
-    // Time without seconds
-    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) // no year
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) // no seconds
     return `${date} ${time}`
   } catch {
     return String(value)
   }
 }
 
-function shortEmail(email) {
+/**
+ * Staff email -> "J.Edwards"
+ * - Takes local-part (before @)
+ * - If "First.Last" => "F.Last" with proper casing
+ * - If only one part => "F.Part"
+ * - If odd formats => graceful fallback
+ */
+function formatStaffEmail(email) {
   if (!email) return ''
-  return String(email).split('@')[0]
+  const e = String(email).trim()
+  if (!e) return ''
+
+  const local = e.split('@')[0] || ''
+  if (!local) return ''
+
+  const parts = local.split('.').filter(Boolean)
+  const firstPart = parts[0] || local
+  const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
+
+  const initial = (firstPart[0] || '').toUpperCase()
+  const surname =
+    (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
+
+  if (!initial || !surname) return local
+  return `${initial}.${surname}`
 }
 
 function csvEscape(v) {
@@ -214,6 +231,23 @@ async function getAppRoleFromAuth() {
 }
 
 // -----------------------------
+// Section Header (solid colour, minimal height)
+// -----------------------------
+function SectionHeader({ title, tone = 'slate' }) {
+  const tones = {
+    slate: 'bg-slate-900 text-white',
+    blue: 'bg-[#0b3a5a] text-white',
+    green: 'bg-emerald-700 text-white',
+  }
+  const cls = tones[tone] || tones.slate
+  return (
+    <div className={`mt-5 mb-2 ${cls} rounded-md px-3 py-1 flex items-center justify-between`}>
+      <div className="text-sm font-semibold tracking-wide">{title}</div>
+    </div>
+  )
+}
+
+// -----------------------------
 // Summary (Counters)
 // -----------------------------
 function Summary({ items }) {
@@ -238,7 +272,6 @@ function Summary({ items }) {
     if (hasAnyOther(areas)) otherCount += 1
   })
 
-  // Deep elegant blue tiles with high contrast white text
   const tileClass =
     'border border-[#0b3a5a] bg-[#0b3a5a] text-white rounded-lg px-3 py-2 shadow-sm flex items-center justify-between gap-3 min-w-[86px]'
 
@@ -249,7 +282,6 @@ function Summary({ items }) {
     </div>
   )
 
-  // Hide zero counters except Total
   const tiles = []
   tiles.push(tile('Total', onSite.length))
 
@@ -261,7 +293,7 @@ function Summary({ items }) {
   if (otherCount > 0) tiles.push(tile('Other', otherCount))
 
   return (
-    <div className="mb-4">
+    <div className="mb-3">
       <div className="flex flex-wrap gap-2">{tiles}</div>
     </div>
   )
@@ -317,7 +349,6 @@ export default function Dashboard() {
   // true  = last 4 days + 30 rows
   const [signedOutExpanded, setSignedOutExpanded] = React.useState(false)
 
-  // --- fob logic helpers
   function hasFobIssued(item) {
     const v = (item?.fob_number || '').toString().trim()
     return v.length > 0
@@ -327,13 +358,11 @@ export default function Dashboard() {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
 
-    // Admin: conservative
     if (isAdmin) {
       if (fobIssued) return !!item.fob_returned
       return !!item.signout_requested
     }
 
-    // Teamleader: must request signout, and if fob then returned
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -357,7 +386,7 @@ export default function Dashboard() {
     setAppRole(role)
     setIsAdmin(role === 'admin')
 
-    // B) Display role cannot access dashboard at all
+    // Display role cannot access dashboard at all
     if (role === 'Display') {
       setItems([])
       return
@@ -386,7 +415,7 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime: refresh when contractors changes (only if not Display)
+  // Realtime refresh (only if not Display)
   React.useEffect(() => {
     if (appRole === 'Display') return
 
@@ -511,8 +540,8 @@ export default function Dashboard() {
       signed_in_at: i.signed_in_at || '',
       sign_in_confirmed_at: i.sign_in_confirmed_at || '',
       signed_out_at: i.signed_out_at || '',
-      sign_in_confirmed_by: shortEmail(i.sign_in_confirmed_by_email || ''),
-      signed_out_by: shortEmail(i.signed_out_by_email || ''),
+      sign_in_confirmed_by: formatStaffEmail(i.sign_in_confirmed_by_email || ''),
+      signed_out_by: formatStaffEmail(i.signed_out_by_email || ''),
     })
 
     const rows = [
@@ -528,7 +557,7 @@ export default function Dashboard() {
 
   if (loading) return <div className="p-4">Loading...</div>
 
-  // Hard block for Display role (B)
+  // Hard block for Display role
   if (appRole === 'Display') {
     return (
       <div className="p-6 max-w-xl mx-auto">
@@ -545,9 +574,6 @@ export default function Dashboard() {
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
 
-  // Signed-out filtering:
-  // default: last 12 hours + 5
-  // expanded: last 4 days + 30
   const now = Date.now()
   const cutoffMs = signedOutExpanded ? 4 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000
   const cutoff = now - cutoffMs
@@ -580,13 +606,15 @@ export default function Dashboard() {
       </div>
 
       {error && (
-        <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>
+        <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
+          {error}
+        </div>
       )}
 
       <Summary items={items} />
 
       {/* Awaiting confirmation */}
-      <h3 className="text-lg font-semibold mt-4 mb-2">Awaiting confirmation</h3>
+      <SectionHeader title="Awaiting confirmation" tone="green" />
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
           <thead className="bg-slate-50">
@@ -616,7 +644,7 @@ export default function Dashboard() {
       </div>
 
       {/* On site */}
-      <h3 className="text-lg font-semibold mt-6 mb-2">Signed in contractors/visitors</h3>
+      <SectionHeader title="Signed in contractors/visitors" tone="blue" />
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
           <thead className="bg-slate-50">
@@ -659,7 +687,9 @@ export default function Dashboard() {
                   <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{shortEmail(i.sign_in_confirmed_by_email) || '-'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
+                  </td>
 
                   <td className="px-2 py-2 whitespace-nowrap">
                     <input
@@ -708,11 +738,11 @@ export default function Dashboard() {
       </div>
 
       {/* Signed out */}
-      <div className="mt-6 flex flex-wrap items-center gap-2">
-        <h3 className="text-lg font-semibold">
+      <div className="mt-5 mb-2 flex items-center justify-between gap-2">
+        <div className="bg-slate-900 text-white rounded-md px-3 py-1 text-sm font-semibold tracking-wide">
           Signed out (last {signedOutExpanded ? 30 : 5}
           {signedOutExpanded ? ', last 4 days' : ', last 12 hours'})
-        </h3>
+        </div>
 
         {!signedOutExpanded && signedOutAll.length > 5 && (
           <button
@@ -770,8 +800,12 @@ export default function Dashboard() {
                 <td className="px-2 py-2 whitespace-nowrap">{i.fob_returned ? 'Yes' : 'No'}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{shortEmail(i.sign_in_confirmed_by_email) || '-'}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{shortEmail(i.signed_out_by_email) || '-'}</td>
+                <td className="px-2 py-2 whitespace-nowrap">
+                  {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap">
+                  {formatStaffEmail(i.signed_out_by_email) || '-'}
+                </td>
               </tr>
             ))}
           </tbody>
