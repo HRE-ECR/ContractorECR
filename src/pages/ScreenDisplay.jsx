@@ -150,6 +150,9 @@ export default function ScreenDisplay() {
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = React.useState(false)
 
+  // Ref for the signed-in table scroll container (used for auto-scroll)
+  const signedInScrollRef = React.useRef(null)
+
   // -----------------------------
   // Inject a tiny global style for hiding nav in fullscreen
   // -----------------------------
@@ -318,11 +321,75 @@ export default function ScreenDisplay() {
     })
   }, [items])
 
-  // ✅ Signed-in table scroll sizing (5 rows visible)
+  // ✅ Signed-in table visible rows + auto-scroll
   const SIGNED_IN_VISIBLE_ROWS = 5
-  const SIGNED_IN_ROW_PX = 52     // approx row height with py-3
-  const SIGNED_IN_HEAD_PX = 44    // approx header height
+  const SIGNED_IN_ROW_PX = 52 // approx row height with py-3
+  const SIGNED_IN_HEAD_PX = 44 // approx header height
   const signedInMaxHeight = SIGNED_IN_HEAD_PX + SIGNED_IN_VISIBLE_ROWS * SIGNED_IN_ROW_PX
+  const shouldAutoScrollSignedIn = onSite.length > SIGNED_IN_VISIBLE_ROWS
+
+  // ✅ Auto-scroll loop (only when > 5)
+  React.useEffect(() => {
+    if (!shouldAutoScrollSignedIn) return
+
+    const el = signedInScrollRef.current
+    if (!el) return
+
+    // If no vertical overflow, don't start auto-scroll
+    if (el.scrollHeight <= el.clientHeight + 1) return
+
+    let rafId = null
+    let last = performance.now()
+
+    // Phases: scroll -> pauseBottom -> pauseTop -> scroll...
+    let phase = 'scroll'
+    let pauseUntil = 0
+
+    const SPEED_PX_PER_SEC = 22 // adjust if you want faster/slower
+    const PAUSE_BOTTOM_MS = 1400
+    const PAUSE_TOP_MS = 600
+
+    const step = (now) => {
+      // If component unmounted or ref changed, stop safely
+      if (!signedInScrollRef.current) return
+
+      const dt = Math.max(0, (now - last) / 1000)
+      last = now
+
+      if (phase === 'pauseBottom' || phase === 'pauseTop') {
+        if (now >= pauseUntil) {
+          if (phase === 'pauseBottom') {
+            // jump to top, then pause shortly at top
+            el.scrollTop = 0
+            phase = 'pauseTop'
+            pauseUntil = now + PAUSE_TOP_MS
+          } else {
+            // resume scrolling
+            phase = 'scroll'
+          }
+        }
+        rafId = requestAnimationFrame(step)
+        return
+      }
+
+      // phase === 'scroll'
+      el.scrollTop += SPEED_PX_PER_SEC * dt
+
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+      if (atBottom) {
+        phase = 'pauseBottom'
+        pauseUntil = now + PAUSE_BOTTOM_MS
+      }
+
+      rafId = requestAnimationFrame(step)
+    }
+
+    rafId = requestAnimationFrame(step)
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [shouldAutoScrollSignedIn, onSite.length])
 
   const counts = {}
   STANDARD_DB_AREAS.forEach((a) => {
@@ -482,16 +549,18 @@ export default function ScreenDisplay() {
         </div>
       )}
 
-      {/* Signed-in contractors (locked to 5 rows visible; scroll if more) */}
+      {/* Signed-in contractors (locked to 5 rows visible; auto-scroll if more) */}
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
         <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" darkMode={darkMode} />
 
-        {/* Outer handles horizontal overflow, inner handles vertical scroll */}
+        {/* Outer handles horizontal overflow */}
         <div className="overflow-x-auto">
+          {/* Inner handles vertical scroll + auto-scroll */}
           <div
+            ref={signedInScrollRef}
             className="overflow-y-auto"
             style={{
-              maxHeight: onSite.length > SIGNED_IN_VISIBLE_ROWS ? signedInMaxHeight : 'none',
+              maxHeight: shouldAutoScrollSignedIn ? signedInMaxHeight : 'none',
             }}
           >
             <table className="min-w-full">
