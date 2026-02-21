@@ -111,14 +111,11 @@ function formatStaffEmail(email) {
   if (!e) return ''
   const local = e.split('@')[0] || ''
   if (!local) return ''
-
   const parts = local.split('.').filter(Boolean)
   const firstPart = parts[0] || local
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
-
   const initial = (firstPart[0] || '').toUpperCase()
-  const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
-
+  const surname = ((lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()).trim()
   if (!initial || !surname) return local
   return `${initial}.${surname}`
 }
@@ -133,7 +130,6 @@ function SectionHeader({ title, count, tone = 'slate', darkMode }) {
     green: darkMode ? 'bg-emerald-700 text-white' : 'bg-emerald-700 text-white',
   }
   const cls = tones[tone] || tones.slate
-
   return (
     <div className={`px-4 py-2 font-semibold flex items-center justify-between ${cls}`}>
       <div className="text-sm tracking-wide">
@@ -152,6 +148,102 @@ export default function ScreenDisplay() {
 
   // Dark mode state (persisted)
   const [darkMode, setDarkMode] = React.useState(false)
+
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = React.useState(false)
+
+  // -----------------------------
+  // Inject a tiny global style for hiding nav in fullscreen
+  // (works even if NavBar is outside this component)
+  // -----------------------------
+  React.useEffect(() => {
+    const styleId = 'screen-display-fullscreen-style'
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style')
+      style.id = styleId
+      style.textContent = `
+        body.screen-display-fullscreen nav { display: none !important; }
+        body.screen-display-fullscreen header { display: none !important; }
+        body.screen-display-fullscreen .app-navbar { display: none !important; }
+        body.screen-display-fullscreen .navbar { display: none !important; }
+      `
+      document.head.appendChild(style)
+    }
+  }, [])
+
+  // Keep body class in sync
+  React.useEffect(() => {
+    try {
+      document.body.classList.toggle('screen-display-fullscreen', isFullscreen)
+    } catch {
+      // ignore
+    }
+  }, [isFullscreen])
+
+  // Track fullscreen changes (ESC key / user exit)
+  React.useEffect(() => {
+    function onFsChange() {
+      const fsEl =
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+
+      setIsFullscreen(!!fsEl)
+    }
+
+    document.addEventListener('fullscreenchange', onFsChange)
+    document.addEventListener('webkitfullscreenchange', onFsChange)
+    document.addEventListener('mozfullscreenchange', onFsChange)
+    document.addEventListener('MSFullscreenChange', onFsChange)
+
+    // Initial sync
+    onFsChange()
+
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.removeEventListener('webkitfullscreenchange', onFsChange)
+      document.removeEventListener('mozfullscreenchange', onFsChange)
+      document.removeEventListener('MSFullscreenChange', onFsChange)
+    }
+  }, [])
+
+  async function enterFullscreen() {
+    setError('')
+    try {
+      const el = document.documentElement
+      if (el.requestFullscreen) await el.requestFullscreen()
+      else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen()
+      else if (el.mozRequestFullScreen) await el.mozRequestFullScreen()
+      else if (el.msRequestFullscreen) await el.msRequestFullscreen()
+      else setError('Fullscreen is not supported on this browser.')
+    } catch (e) {
+      setError(e?.message || 'Failed to enter fullscreen.')
+    }
+  }
+
+  async function exitFullscreen() {
+    setError('')
+    try {
+      if (document.exitFullscreen) await document.exitFullscreen()
+      else if (document.webkitExitFullscreen) await document.webkitExitFullscreen()
+      else if (document.mozCancelFullScreen) await document.mozCancelFullScreen()
+      else if (document.msExitFullscreen) await document.msExitFullscreen()
+    } catch (e) {
+      setError(e?.message || 'Failed to exit fullscreen.')
+    }
+  }
+
+  async function toggleFullscreen() {
+    const fsEl =
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement
+
+    if (fsEl) await exitFullscreen()
+    else await enterFullscreen()
+  }
 
   React.useEffect(() => {
     try {
@@ -175,13 +267,8 @@ export default function ScreenDisplay() {
 
   async function load() {
     setError('')
-    const { data, error } = await supabase
-      .from('contractors')
-      .select('*')
-      .order('signed_in_at', { ascending: false })
-      .limit(500)
-
-    if (error) setError(error.message)
+    const { data, error: err } = await supabase.from('contractors').select('*').order('signed_in_at', { ascending: false }).limit(500)
+    if (err) setError(err.message)
     setItems(data || [])
     setLastUpdated(Date.now())
   }
@@ -224,8 +311,8 @@ export default function ScreenDisplay() {
   STANDARD_DB_AREAS.forEach((a) => {
     counts[a] = 0
   })
-  let otherCount = 0
 
+  let otherCount = 0
   onSite.forEach((i) => {
     const areas = Array.isArray(i.areas) ? i.areas : []
     let hasOther = false
@@ -272,8 +359,11 @@ export default function ScreenDisplay() {
     .filter((x) => x.value > 0)
     .sort((x, y) => SHORT_ORDER.indexOf(x.label) - SHORT_ORDER.indexOf(y.label))
 
+  // When fullscreen, make this section fill the viewport & sit above everything
+  const fullscreenShell = isFullscreen ? 'fixed inset-0 z-50 overflow-auto rounded-none' : 'rounded-xl'
+
   return (
-    <section className={`space-y-5 p-3 rounded-xl ${pageBg}`}>
+    <section className={`space-y-5 p-3 ${fullscreenShell} ${pageBg}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Screen display</h1>
@@ -284,19 +374,36 @@ export default function ScreenDisplay() {
           {error && <p className="text-red-400 mt-2">{error}</p>}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setDarkMode((v) => !v)}
-          className={
-            darkMode
-              ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-              : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
-          }
-          aria-label="Toggle dark mode"
-          title="Toggle dark mode"
-        >
-          {darkMode ? '☾ Dark' : '☀ Light'}
-        </button>
+        {/* Buttons: Dark/Light + Fullscreen */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDarkMode((v) => !v)}
+            className={
+              darkMode
+                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+            }
+            aria-label="Toggle dark mode"
+            title="Toggle dark mode"
+          >
+            {darkMode ? '☾ Dark' : '☀ Light'}
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={
+              darkMode
+                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+            }
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? '🗗 Exit' : '⛶ Full'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10 gap-2">
@@ -331,7 +438,6 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
-
               {awaiting.map((i) => (
                 <tr
                   key={i.id}
@@ -370,36 +476,24 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
-
               {onSite.map((i) => {
                 const awaitingSignOut = !!i.signout_requested
                 const rowBg = awaitingSignOut ? signoutRowBg : ''
-                const mainCls = awaitingSignOut
-                  ? signoutTextMain
-                  : darkMode
-                    ? 'text-slate-100'
-                    : 'text-slate-900'
-                const subCls = awaitingSignOut
-                  ? signoutTextSub
-                  : darkMode
-                    ? 'text-slate-200'
-                    : 'text-slate-700'
+                const mainCls = awaitingSignOut ? signoutTextMain : darkMode ? 'text-slate-100' : 'text-slate-900'
+                const subCls = awaitingSignOut ? signoutTextSub : darkMode ? 'text-slate-200' : 'text-slate-700'
 
                 return (
-                  <tr
-                    key={i.id}
-                    className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
-                  >
+                  <tr key={i.id} className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
                     <td className={`px-4 py-3 font-semibold ${mainCls}`}>
                       {i.first_name} {i.surname}
                     </td>
                     <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
                     <td className={`px-4 py-3 ${subCls}`}>{areasTextForTables(i.areas)}</td>
                     <td className={`px-4 py-3 ${subCls}`}>
-                      {i.fob_number ? i.fob_number : <span className={darkMode ? 'text-slate-400' : 'text-slate-400'}>-</span>}
+                      {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
                     </td>
                     <td className={`px-4 py-3 ${subCls}`}>
-                      {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className={darkMode ? 'text-slate-400' : 'text-slate-400'}>-</span>}
+                      {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}
                     </td>
                   </tr>
                 )
