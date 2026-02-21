@@ -137,7 +137,6 @@ function useIsOverflowing(ref, depsKey) {
       setOverflowing(has)
     }
 
-    // Delay checks to allow table/layout/fonts to settle
     raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         check()
@@ -149,10 +148,8 @@ function useIsOverflowing(ref, depsKey) {
       if (ref.current) ro.observe(ref.current)
     }
 
-    // Also recheck periodically (covers sticky table/layout quirks)
     intervalId = window.setInterval(check, 800)
 
-    // Recheck on visibility/focus
     const onVis = () => check()
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('focus', onVis)
@@ -173,9 +170,6 @@ function useIsOverflowing(ref, depsKey) {
 /**
  * Robust ping-pong auto-scroll driven by setInterval.
  * Scrolls down -> pause -> up -> pause -> repeat.
- *
- * NOTE: We only reset scrollTop when resetKey changes (data/layout change),
- * NOT when you pause/resume.
  */
 function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pauseMs = 1400, tickMs = 33 }) {
   const prevResetKeyRef = React.useRef(null)
@@ -185,15 +179,13 @@ function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pau
     const el = ref.current
     if (!el) return
 
-    // Only reset position when resetKey changes (e.g. data refresh),
-    // not when user pauses/resumes.
     if (prevResetKeyRef.current !== resetKey) {
       el.scrollTop = 0
       prevResetKeyRef.current = resetKey
     }
 
-    let dir = 1 // 1 down, -1 up
-    let phase = 'scroll' // 'scroll' | 'pause'
+    let dir = 1
+    let phase = 'scroll'
     let pauseUntil = 0
     let last = performance.now()
     let timerId = null
@@ -230,7 +222,6 @@ function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pau
       }
     }
 
-    // Start after layout settles
     const r1 = requestAnimationFrame(() => {
       const r2 = requestAnimationFrame(() => {
         last = performance.now()
@@ -264,10 +255,10 @@ export default function ScreenDisplay() {
   const [darkMode, setDarkMode] = React.useState(false)
   const [isFullscreen, setIsFullscreen] = React.useState(false)
 
-  // ✅ NEW: Pause/Resume auto-scroll
+  // Pause/Resume auto-scroll
   const [autoScrollPaused, setAutoScrollPaused] = React.useState(false)
 
-  // ✅ NEW: Hide cursor when idle in fullscreen
+  // Hide cursor when idle in fullscreen
   const [cursorHidden, setCursorHidden] = React.useState(false)
 
   const signedInScrollRef = React.useRef(null)
@@ -286,36 +277,22 @@ export default function ScreenDisplay() {
         body.screen-display-fullscreen .navbar { display: none !important; }
 
         /* Hide cursor when idle (fullscreen only) */
-        body.screen-display-cursor-hidden {
-          cursor: none !important;
-        }
-        body.screen-display-cursor-hidden * {
-          cursor: none !important;
-        }
+        body.screen-display-cursor-hidden { cursor: none !important; }
+        body.screen-display-cursor-hidden * { cursor: none !important; }
 
         /* Hide scrollbars until hover */
         .scrollbar-hide-until-hover {
           scrollbar-width: none;
           -ms-overflow-style: none;
         }
-        .scrollbar-hide-until-hover::-webkit-scrollbar {
-          width: 0px;
-          height: 0px;
-        }
-        .scrollbar-hide-until-hover:hover {
-          scrollbar-width: thin;
-        }
-        .scrollbar-hide-until-hover:hover::-webkit-scrollbar {
-          width: 10px;
-          height: 10px;
-        }
+        .scrollbar-hide-until-hover::-webkit-scrollbar { width: 0px; height: 0px; }
+        .scrollbar-hide-until-hover:hover { scrollbar-width: thin; }
+        .scrollbar-hide-until-hover:hover::-webkit-scrollbar { width: 10px; height: 10px; }
         .scrollbar-hide-until-hover:hover::-webkit-scrollbar-thumb {
           background: rgba(100,116,139,0.55);
           border-radius: 999px;
         }
-        .scrollbar-hide-until-hover:hover::-webkit-scrollbar-track {
-          background: rgba(15,23,42,0.10);
-        }
+        .scrollbar-hide-until-hover:hover::-webkit-scrollbar-track { background: rgba(15,23,42,0.10); }
       `
       document.head.appendChild(style)
     }
@@ -330,7 +307,7 @@ export default function ScreenDisplay() {
     }
   }, [isFullscreen])
 
-  // ✅ Apply cursor hidden class (only meaningful in fullscreen)
+  // Apply cursor hidden class (fullscreen only)
   React.useEffect(() => {
     try {
       const shouldHide = isFullscreen && cursorHidden
@@ -340,7 +317,7 @@ export default function ScreenDisplay() {
     }
   }, [isFullscreen, cursorHidden])
 
-  // ✅ Cursor idle detection in fullscreen
+  // Cursor idle detection in fullscreen
   React.useEffect(() => {
     if (!isFullscreen) {
       setCursorHidden(false)
@@ -356,7 +333,6 @@ export default function ScreenDisplay() {
       t = setTimeout(() => setCursorHidden(true), IDLE_MS)
     }
 
-    // Start timer immediately on entering fullscreen
     showAndReset()
 
     window.addEventListener('mousemove', showAndReset, { passive: true })
@@ -502,7 +478,7 @@ export default function ScreenDisplay() {
     })
   }, [items])
 
-  // --- thresholds / sizing ---
+  // thresholds / sizing
   const SIGNED_IN_VISIBLE_ROWS = 5
   const AWAITING_VISIBLE_ROWS = 2
   const ROW_PX = 44
@@ -513,18 +489,14 @@ export default function ScreenDisplay() {
   const lockSignedIn = onSite.length > SIGNED_IN_VISIBLE_ROWS
   const lockAwaiting = awaiting.length > AWAITING_VISIBLE_ROWS
 
-  // overflow detection
   const signedInOverflowing = useIsOverflowing(signedInScrollRef, `${onSite.length}-${lastUpdated || 0}`)
   const awaitingOverflowing = useIsOverflowing(awaitingScrollRef, `${awaiting.length}-${lastUpdated || 0}`)
 
-  // enable when >N AND overflow exists AND not paused
   const enableSignedInAutoScroll = lockSignedIn && signedInOverflowing && !autoScrollPaused
   const enableAwaitingAutoScroll = lockAwaiting && awaitingOverflowing && !autoScrollPaused
 
-  // whether we have any auto-scroll eligible right now (used to disable button when pointless)
   const autoScrollEligible = (lockSignedIn && signedInOverflowing) || (lockAwaiting && awaitingOverflowing)
 
-  // auto scroll (ping-pong)
   usePingPongAutoScroll({
     ref: signedInScrollRef,
     enabled: enableSignedInAutoScroll,
@@ -618,7 +590,6 @@ export default function ScreenDisplay() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Pause/Resume auto scroll */}
           <button
             type="button"
             onClick={() => setAutoScrollPaused((v) => !v)}
@@ -638,7 +609,6 @@ export default function ScreenDisplay() {
             {autoScrollPaused ? '▶ Scroll' : '⏸ Pause'}
           </button>
 
-          {/* Dark/Light */}
           <button
             type="button"
             onClick={() => setDarkMode((v) => !v)}
@@ -649,7 +619,6 @@ export default function ScreenDisplay() {
             {darkMode ? '☾ Dark' : '☀ Light'}
           </button>
 
-          {/* Fullscreen */}
           <button
             type="button"
             onClick={toggleFullscreen}
@@ -662,9 +631,9 @@ export default function ScreenDisplay() {
         </div>
       </div>
 
+      {/* ✅ Counters: removed Awaiting tile + added builder emoji to On site */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10 gap-2">
-        <CounterTile label="On site" value={onSite.length} />
-        <CounterTile label="Awaiting" value={awaiting.length} />
+        <CounterTile label="👷‍♂️ On site" value={onSite.length} />
         {areaCounterTiles.map((x) => (
           <CounterTile key={x.db} label={x.label} value={x.value} />
         ))}
