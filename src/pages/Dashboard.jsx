@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient'
 
 const NL = String.fromCharCode(10)
 
-// Standard areas (renamed)
+// Standard areas
 const STANDARD_AREAS = [
   'Maint-1',
   'Maint-2',
@@ -26,7 +26,6 @@ function isOtherArea(a) {
 function Summary({ items }) {
   const onSite = items.filter(i => i.status !== 'signed_out' && !i.signed_out_at)
 
-  // count contractors per area (contractor counted for each area they selected)
   const counts = {}
   STANDARD_AREAS.forEach(a => { counts[a] = 0 })
   let otherCount = 0
@@ -43,34 +42,34 @@ function Summary({ items }) {
       }
     })
 
-    // Other is a contractor-level count (not per-area)
     if (hasOther) otherCount += 1
   })
 
+  // Upgraded KPI Chips with modern styling
   const chip = (label, value, icon, tone) => {
     const tones = {
-      slate: 'bg-slate-50 border-slate-200 text-slate-900',
-      blue: 'bg-blue-50 border-blue-200 text-blue-900',
-      green: 'bg-emerald-50 border-emerald-200 text-emerald-900',
-      red: 'bg-rose-50 border-rose-200 text-rose-900',
-      amber: 'bg-amber-50 border-amber-200 text-amber-900',
+      slate: 'border-l-slate-500 text-slate-700 bg-white',
+      blue: 'border-l-blue-500 text-blue-800 bg-white',
+      green: 'border-l-emerald-500 text-emerald-800 bg-white',
+      red: 'border-l-rose-500 text-rose-800 bg-white',
+      amber: 'border-l-amber-500 text-amber-800 bg-white',
     }
     const cls = tones[tone] || tones.slate
 
     return (
-      <div className={`flex items-center justify-between gap-2 px-3 py-2 border rounded-lg ${cls}`}>
+      <div className={`flex items-center justify-between gap-3 px-4 py-3 shadow-sm rounded-r-xl border-y border-r border-l-4 border-slate-100 hover:shadow-md transition-shadow duration-200 ${cls}`}>
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm" aria-hidden="true">{icon}</span>
-          <span className="text-xs font-semibold truncate">{label}</span>
+          <span className="text-lg bg-slate-50 p-1.5 rounded-md" aria-hidden="true">{icon}</span>
+          <span className="text-xs font-bold uppercase tracking-wide truncate opacity-80">{label}</span>
         </div>
-        <span className="text-sm font-bold tabular-nums">{value}</span>
+        <span className="text-xl font-extrabold tabular-nums">{value}</span>
       </div>
     )
   }
 
   return (
-    <div className="space-y-2 mb-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+    <div className="space-y-3 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
         {chip('Total on site', onSite.length, '👷', 'slate')}
         {chip('Maint-1', counts['Maint-1'], '🚂', 'blue')}
         {chip('Maint-2', counts['Maint-2'], '🚂', 'blue')}
@@ -82,8 +81,8 @@ function Summary({ items }) {
         {chip('4-Clean', counts['4-Clean'], '🧽', 'green')}
         {chip('Other', otherCount, '➕', 'slate')}
       </div>
-      <p className="text-xs text-slate-500">
-        “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
+      <p className="text-xs text-slate-400 font-medium">
+        * “Other” counts contractors who selected any non-standard area.
       </p>
     </div>
   )
@@ -91,7 +90,7 @@ function Summary({ items }) {
 
 function formatDate(value) {
   if (!value) return ''
-  try { return new Date(value).toLocaleString() } catch { return String(value) }
+  try { return new Date(value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) } catch { return String(value) }
 }
 
 function shortEmail(email) {
@@ -127,15 +126,15 @@ function downloadCsv(filename, rows) {
 
 function Table({ children }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full">{children}</table>
+    <div className="overflow-x-auto rounded-b-xl">
+      <table className="min-w-full text-sm">{children}</table>
     </div>
   )
 }
 
 function Th({ children }) {
   return (
-    <th className="text-left text-xs uppercase tracking-wider text-slate-500 px-4 py-2">
+    <th className="text-left text-xs font-bold uppercase tracking-wider text-slate-500 bg-slate-50 px-5 py-3 border-b border-slate-200">
       {children}
     </th>
   )
@@ -143,7 +142,7 @@ function Th({ children }) {
 
 function Td({ children, className = '', ...rest }) {
   return (
-    <td {...rest} className={`px-4 py-2 align-middle ${className}`}>
+    <td {...rest} className={`px-5 py-3 align-middle border-b border-slate-100 ${className}`}>
       {children}
     </td>
   )
@@ -153,15 +152,19 @@ function AwaitingRow({ item, onConfirm }) {
   const [fob, setFob] = React.useState('')
 
   return (
-    <tr className="border-t bg-emerald-50/60">
+    <tr className="bg-emerald-50/40 hover:bg-emerald-50 transition-colors">
       <Td className="font-semibold text-emerald-900">{item.first_name} {item.surname}</Td>
-      <Td className="text-emerald-900/90">{item.company}</Td>
-      <Td className="text-emerald-900/90">{item.phone}</Td>
-      <Td className="text-emerald-900/90">{(item.areas || []).join(', ')}</Td>
-      <Td className="text-emerald-900/90">{formatDate(item.signed_in_at)}</Td>
+      <Td className="text-emerald-800">{item.company}</Td>
+      <Td className="text-emerald-800">{item.phone}</Td>
+      <Td className="text-emerald-800">
+        <span className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded-md">
+          {(item.areas || []).join(', ')}
+        </span>
+      </Td>
+      <Td className="text-emerald-800">{formatDate(item.signed_in_at)}</Td>
       <Td>
         <input
-          className="border rounded p-1 w-32 bg-white"
+          className="border border-emerald-200 rounded-lg px-3 py-1.5 w-32 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow"
           placeholder="Enter fob #"
           value={fob}
           onChange={e => setFob(e.target.value)}
@@ -170,7 +173,7 @@ function AwaitingRow({ item, onConfirm }) {
       <Td>
         <button
           onClick={() => onConfirm(item.id, fob)}
-          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+          className="px-4 py-1.5 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 shadow-sm transition-colors"
         >
           Confirm sign-in
         </button>
@@ -193,16 +196,8 @@ export default function Dashboard() {
     return v.length > 0
   }
 
-  // Sign-out rule:
-  // - Teamleader: must have signout_requested = true
-  //   - if fob issued => must have fob_returned = true
-  //   - if no fob => no fob_returned needed
-  // - Admin: keep your prior admin override? (we keep conservative)
-  //   - If fob issued => require fob_returned true; signout_requested not required (as you previously wanted)
-  //   - If no fob => require signout_requested true
   function canConfirmSignOut(item) {
     if (!item) return false
-
     const fobIssued = hasFobIssued(item)
 
     if (isAdmin) {
@@ -210,7 +205,6 @@ export default function Dashboard() {
       return !!item.signout_requested
     }
 
-    // teamleader
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -231,7 +225,6 @@ export default function Dashboard() {
 
   async function load() {
     setError('')
-
     const { data: userData } = await supabase.auth.getUser()
     const uid = userData.user?.id
 
@@ -267,13 +260,10 @@ export default function Dashboard() {
       await load()
       setLoading(false)
     })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime Option 1: refresh when contractors changes
   React.useEffect(() => {
     let debounceTimer = null
-
     const channel = supabase
       .channel('contractors-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contractors' }, () => {
@@ -298,13 +288,11 @@ export default function Dashboard() {
 
   async function confirmSignIn(itemId, fob) {
     const raw = (fob || '').toString().trim()
-
-    // NEW: if empty fob, ask to confirm no fob issued
     let finalFob = raw
     if (!finalFob) {
       const ok = confirm('No fob number entered. Confirm that no fob is required or being issued?')
       if (!ok) return
-      finalFob = '' // store empty => treated as no fob issued
+      finalFob = '' 
     }
 
     const { data: userData } = await supabase.auth.getUser()
@@ -316,7 +304,7 @@ export default function Dashboard() {
       sign_in_confirmed_at: new Date().toISOString(),
       sign_in_confirmed_by: uid,
       sign_in_confirmed_by_email: email,
-      fob_number: finalFob ? finalFob : null, // null means "no fob issued"
+      fob_number: finalFob ? finalFob : null, 
     }
 
     const { error } = await supabase
@@ -355,10 +343,7 @@ export default function Dashboard() {
 
   async function setFobReturned(itemId, value) {
     const item = items.find(x => x.id === itemId)
-    if (item && !hasFobIssued(item)) {
-      // no fob issued - checkbox should be disabled anyway
-      return
-    }
+    if (item && !hasFobIssued(item)) return
 
     const prevItems = items
     setItems(curr => curr.map(i => (i.id === itemId ? { ...i, fob_returned: value } : i)))
@@ -422,7 +407,11 @@ export default function Dashboard() {
     downloadCsv(`contractors_export_${stamp}.csv`, rows)
   }
 
-  if (loading) return <div className="p-6">Loading...</div>
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen bg-slate-50">
+      <div className="text-lg font-medium text-slate-500 animate-pulse">Loading Dashboard...</div>
+    </div>
+  )
 
   const awaiting = items.filter(i => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter(i => i.status === 'confirmed' && !i.signed_out_at)
@@ -436,174 +425,223 @@ export default function Dashboard() {
   const signedOut = signedOutAll.slice(0, signedOutLimit)
 
   return (
-    <section>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
-        <h1 className="text-2xl font-bold">Contractor/Visitor details</h1>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={handleRefresh} disabled={refreshing} className="px-4 py-2 bg-slate-200 rounded hover:bg-slate-300">
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-          <button onClick={exportAllTables} className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800">
-            Export all tables (CSV)
-          </button>
-        </div>
-      </div>
-
-      {error && <p className="text-red-600 mb-2">{error}</p>}
-
-      <Summary items={items} />
-
-      {/* Awaiting confirmation (green highlight) */}
-      <div className="bg-white border rounded mb-6">
-        <div className="px-4 py-2 border-b bg-slate-50 font-semibold">Awaiting confirmation</div>
-        <Table>
-          <thead>
-            <tr>
-              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th></Th>
-            </tr>
-          </thead>
-          <tbody>
-            {awaiting.length === 0 && (
-              <tr><Td colSpan={7} className="text-center text-slate-500">None</Td></tr>
-            )}
-            {awaiting.map(i => (
-              <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} />
-            ))}
-          </tbody>
-        </Table>
-      </div>
-
-      {/* On site (red highlight if signout requested) */}
-      <div className="bg-white border rounded mb-6">
-        <div className="px-4 py-2 border-b bg-slate-50 font-semibold">Signed in contractors/visitors</div>
-        <Table>
-          <thead>
-            <tr>
-              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th>Signed in by</Th>
-              <Th>Fob returned</Th><Th>Sign-out requested</Th><Th></Th>{isAdmin && <Th></Th>}
-            </tr>
-          </thead>
-          <tbody>
-            {onSite.length === 0 && (
-              <tr><Td colSpan={isAdmin ? 11 : 10} className="text-center text-slate-500">None</Td></tr>
-            )}
-
-            {onSite.map(i => {
-              const canSignOut = canConfirmSignOut(i)
-              const reason = signOutDisabledReason(i)
-              const fobIssued = hasFobIssued(i)
-
-              const rowTone = i.signout_requested
-                ? 'bg-rose-50/70'
-                : ''
-
-              return (
-                <tr key={i.id} className={`border-t ${rowTone}`}>
-                  <Td className={i.signout_requested ? 'text-rose-900 font-semibold' : ''}>
-                    {i.first_name} {i.surname}
-                  </Td>
-                  <Td className={i.signout_requested ? 'text-rose-900/90' : ''}>{i.company}</Td>
-                  <Td className={i.signout_requested ? 'text-rose-900/90' : ''}>{i.phone}</Td>
-                  <Td className={i.signout_requested ? 'text-rose-900/90' : ''}>{(i.areas || []).join(', ')}</Td>
-                  <Td className={i.signout_requested ? 'text-rose-900/90' : ''}>{formatDate(i.signed_in_at)}</Td>
-                  <Td className={i.signout_requested ? 'text-rose-900/90' : ''}>{i.fob_number || <span className="text-slate-400">-</span>}</Td>
-                  <Td className={i.signout_requested ? 'text-rose-900/90' : ''}>{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}</Td>
-
-                  {/* Fob returned checkbox logic */}
-                  <Td>
-                    <input
-                      type="checkbox"
-                      checked={!!i.fob_returned}
-                      disabled={!fobIssued}
-                      title={!fobIssued ? 'No fob issued' : 'Fob returned'}
-                      onChange={e => setFobReturned(i.id, e.target.checked)}
-                      className={!fobIssued ? 'cursor-not-allowed opacity-60' : ''}
-                    />
-                  </Td>
-
-                  <Td className={i.signout_requested ? 'text-rose-900 font-semibold' : ''}>
-                    {i.signout_requested ? 'Yes' : 'No'}
-                  </Td>
-
-                  <Td>
-                    <button
-                      disabled={!canSignOut}
-                      title={!canSignOut ? reason : 'Confirm sign-out'}
-                      onClick={() => confirmSignOut(i)}
-                      className={`px-3 py-1 rounded whitespace-nowrap text-sm ${
-                        canSignOut
-                          ? 'bg-green-600 hover:bg-green-700 text-white'
-                          : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                      }`}
-                      style={{ fontSize: '0.80rem' }}
-                    >
-                      Confirm sign-out
-                    </button>
-                  </Td>
-
-                  {isAdmin && (
-                    <Td>
-                      <button onClick={() => remove(i.id)} className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded">
-                        Delete
-                      </button>
-                    </Td>
-                  )}
-                </tr>
-              )
-            })}
-          </tbody>
-        </Table>
-      </div>
-
-      {/* Signed out table unchanged */}
-      <div className="bg-white border rounded">
-        <div className="px-4 py-2 border-b bg-slate-50 font-semibold flex items-center justify-between">
-          <span>Signed out (last {signedOutLimit})</span>
-          <div className="flex gap-2">
-            {signedOutLimit === 10 && signedOutAll.length > 10 && (
-              <button onClick={() => setSignedOutLimit(30)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
-                Show more
-              </button>
-            )}
-            {signedOutLimit === 30 && (
-              <button onClick={() => setSignedOutLimit(10)} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
-                Show less
-              </button>
-            )}
+    <div className="min-h-screen bg-slate-50/50 p-4 sm:p-6 lg:p-8 font-sans">
+      <div className="max-w-7xl mx-auto space-y-6">
+        
+        {/* --- Modern Hero Header with Image Fallback --- */}
+        <div className="relative overflow-hidden rounded-2xl shadow-lg bg-slate-900 flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
+          {/* Fallback gradient behind the image */}
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-900 to-slate-900 z-0"></div>
+          {/* Train image from web. Replace src with your own Hitachi asset if needed */}
+          <img 
+            src="https://images.unsplash.com/photo-1541625602330-2277a4c46182?auto=format&fit=crop&w=1200&q=80" 
+            alt="Hitachi High Speed Train" 
+            className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay z-0"
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
+          
+          <div className="relative z-10 p-6 sm:p-8 flex-1">
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Hitachi Rail</h1>
+            <p className="text-blue-200 mt-2 text-sm sm:text-base font-medium">Contractor & Visitor Management Dashboard</p>
+          </div>
+          
+          <div className="relative z-10 p-6 sm:p-8 flex flex-wrap gap-3 sm:justify-end">
+            <button 
+              onClick={handleRefresh} 
+              disabled={refreshing} 
+              className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg backdrop-blur-sm transition-all text-sm font-semibold border border-white/20 focus:ring-2 focus:ring-white/50"
+            >
+              {refreshing ? 'Refreshing...' : 'Refresh Data'}
+            </button>
+            <button 
+              onClick={exportAllTables} 
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg shadow-md transition-all text-sm font-semibold focus:ring-2 focus:ring-blue-400"
+            >
+              Export CSV
+            </button>
           </div>
         </div>
-        <Table>
-          <thead>
-            <tr>
-              <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Fob #</Th><Th>Fob returned</Th>
-              <Th>Signed in</Th><Th>Signed out</Th><Th>Signed in by</Th><Th>Signed out by</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {signedOut.length === 0 && (
-              <tr><Td colSpan={10} className="text-center text-slate-500">None</Td></tr>
-            )}
-            {signedOut.map(i => (
-              <tr key={i.id} className="border-t">
-                <Td>{i.first_name} {i.surname}</Td>
-                <Td>{i.company}</Td>
-                <Td>{i.phone}</Td>
-                <Td>{(i.areas || []).join(', ')}</Td>
-                <Td>{i.fob_number || <span className="text-slate-400">-</span>}</Td>
-                <Td>{i.fob_returned ? 'Yes' : 'No'}</Td>
-                <Td>{formatDate(i.signed_in_at)}</Td>
-                <Td>{formatDate(i.signed_out_at)}</Td>
-                <Td>{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}</Td>
-                <Td>{shortEmail(i.signed_out_by_email) || <span className="text-slate-400">-</span>}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </div>
 
-      <p className="text-xs text-slate-500 mt-3">
-        Signed-out records are kept for up to 7 days and then automatically removed.
-      </p>
-    </section>
+        {error && (
+          <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm">
+            <p className="font-medium">{error}</p>
+          </div>
+        )}
+
+        <Summary items={items} />
+
+        {/* Awaiting confirmation */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200 bg-white flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+            <h2 className="font-bold text-slate-800">Awaiting Confirmation</h2>
+            <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full font-semibold">{awaiting.length}</span>
+          </div>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th>Action</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {awaiting.length === 0 && (
+                <tr><Td colSpan={7} className="text-center text-slate-500 py-8 italic">No contractors awaiting confirmation.</Td></tr>
+              )}
+              {awaiting.map(i => (
+                <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} />
+              ))}
+            </tbody>
+          </Table>
+        </div>
+
+        {/* On site */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200 bg-white flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-blue-500"></span>
+            <h2 className="font-bold text-slate-800">Currently On-Site</h2>
+            <span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full font-semibold">{onSite.length}</span>
+          </div>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Signed in</Th><Th>Fob #</Th><Th>Signed in by</Th>
+                <Th>Fob returned</Th><Th>Sign-out req.</Th><Th>Action</Th>{isAdmin && <Th>Admin</Th>}
+              </tr>
+            </thead>
+            <tbody>
+              {onSite.length === 0 && (
+                <tr><Td colSpan={isAdmin ? 11 : 10} className="text-center text-slate-500 py-8 italic">No one is currently on site.</Td></tr>
+              )}
+
+              {onSite.map(i => {
+                const canSignOut = canConfirmSignOut(i)
+                const reason = signOutDisabledReason(i)
+                const fobIssued = hasFobIssued(i)
+                const rowTone = i.signout_requested ? 'bg-rose-50/50 hover:bg-rose-50' : 'hover:bg-slate-50 transition-colors'
+
+                return (
+                  <tr key={i.id} className={rowTone}>
+                    <Td className={i.signout_requested ? 'text-rose-900 font-semibold' : 'font-medium text-slate-900'}>
+                      {i.first_name} {i.surname}
+                    </Td>
+                    <Td className={i.signout_requested ? 'text-rose-900/90' : 'text-slate-600'}>{i.company}</Td>
+                    <Td className={i.signout_requested ? 'text-rose-900/90' : 'text-slate-600'}>{i.phone}</Td>
+                    <Td>
+                      <span className={`text-xs px-2 py-1 rounded-md ${i.signout_requested ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}>
+                        {(i.areas || []).join(', ')}
+                      </span>
+                    </Td>
+                    <Td className={i.signout_requested ? 'text-rose-900/90' : 'text-slate-600'}>{formatDate(i.signed_in_at)}</Td>
+                    <Td className={i.signout_requested ? 'text-rose-900/90' : 'text-slate-600 font-mono'}>{i.fob_number || <span className="text-slate-300">-</span>}</Td>
+                    <Td className={i.signout_requested ? 'text-rose-900/90' : 'text-slate-600'}>{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-300">-</span>}</Td>
+
+                    <Td>
+                      <input
+                        type="checkbox"
+                        checked={!!i.fob_returned}
+                        disabled={!fobIssued}
+                        title={!fobIssued ? 'No fob issued' : 'Fob returned'}
+                        onChange={e => setFobReturned(i.id, e.target.checked)}
+                        className={`w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 ${!fobIssued ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
+                      />
+                    </Td>
+
+                    <Td>
+                      {i.signout_requested ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-800">
+                          Yes
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-sm">No</span>
+                      )}
+                    </Td>
+
+                    <Td>
+                      <button
+                        disabled={!canSignOut}
+                        title={!canSignOut ? reason : 'Confirm sign-out'}
+                        onClick={() => confirmSignOut(i)}
+                        className={`px-3 py-1.5 rounded-lg whitespace-nowrap text-xs font-semibold transition-colors ${
+                          canSignOut
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                        }`}
+                      >
+                        Confirm out
+                      </button>
+                    </Td>
+
+                    {isAdmin && (
+                      <Td>
+                        <button onClick={() => remove(i.id)} className="px-3 py-1.5 text-xs font-semibold bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors">
+                          Delete
+                        </button>
+                      </Td>
+                    )}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </Table>
+        </div>
+
+        {/* Signed out history */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200 bg-white flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-slate-400"></span>
+              <h2 className="font-bold text-slate-800">Signed Out <span className="text-slate-500 font-normal text-sm ml-1">(Last {signedOutLimit})</span></h2>
+            </div>
+            <div className="flex gap-2">
+              {signedOutLimit === 10 && signedOutAll.length > 10 && (
+                <button onClick={() => setSignedOutLimit(30)} className="px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors">
+                  Load More
+                </button>
+              )}
+              {signedOutLimit === 30 && (
+                <button onClick={() => setSignedOutLimit(10)} className="px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors">
+                  Show Less
+                </button>
+              )}
+            </div>
+          </div>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Name</Th><Th>Company</Th><Th>Phone</Th><Th>Areas</Th><Th>Fob #</Th><Th>Fob returned</Th>
+                <Th>Signed in</Th><Th>Signed out</Th><Th>Signed in by</Th><Th>Signed out by</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {signedOut.length === 0 && (
+                <tr><Td colSpan={10} className="text-center text-slate-500 py-8 italic">No recent sign-outs.</Td></tr>
+              )}
+              {signedOut.map(i => (
+                <tr key={i.id} className="hover:bg-slate-50 transition-colors">
+                  <Td className="font-medium text-slate-900">{i.first_name} {i.surname}</Td>
+                  <Td className="text-slate-600">{i.company}</Td>
+                  <Td className="text-slate-600">{i.phone}</Td>
+                  <Td>
+                     <span className="bg-slate-100 text-slate-700 text-xs px-2 py-1 rounded-md">
+                      {(i.areas || []).join(', ')}
+                    </span>
+                  </Td>
+                  <Td className="text-slate-600 font-mono">{i.fob_number || <span className="text-slate-300">-</span>}</Td>
+                  <Td>{i.fob_returned ? <span className="text-emerald-600 font-medium text-sm">Yes</span> : <span className="text-slate-400 text-sm">No</span>}</Td>
+                  <Td className="text-slate-500 text-sm">{formatDate(i.signed_in_at)}</Td>
+                  <Td className="text-slate-500 text-sm">{formatDate(i.signed_out_at)}</Td>
+                  <Td className="text-slate-500 text-sm">{shortEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-300">-</span>}</Td>
+                  <Td className="text-slate-500 text-sm">{shortEmail(i.signed_out_by_email) || <span className="text-slate-300">-</span>}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+
+        <p className="text-xs text-slate-400 mt-4 text-center">
+          Signed-out records are kept for up to 7 days and then automatically removed.
+        </p>
+      </div>
+    </div>
   )
 }
