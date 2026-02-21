@@ -109,6 +109,7 @@ function formatStaffEmail(email) {
   if (!email) return ''
   const e = String(email).trim()
   if (!e) return ''
+
   const local = e.split('@')[0] || ''
   if (!local) return ''
 
@@ -153,11 +154,17 @@ export default function ScreenDisplay() {
   // Dark mode state (persisted)
   const [darkMode, setDarkMode] = React.useState(false)
 
+  // Scroll container ref for auto-scroll
+  const scrollRef = React.useRef(null)
+
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem('screenDisplayDarkMode')
-      if (saved === 'true' || saved === 'false') setDarkMode(saved === 'true')
-      else if (window?.matchMedia) setDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches)
+      if (saved === 'true' || saved === 'false') {
+        setDarkMode(saved === 'true')
+      } else if (window?.matchMedia) {
+        setDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches)
+      }
     } catch {
       // ignore
     }
@@ -199,6 +206,7 @@ export default function ScreenDisplay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Realtime refresh (Option 1): refresh on any contractors changes
   React.useEffect(() => {
     let debounceTimer = null
     const channel = supabase
@@ -217,9 +225,90 @@ export default function ScreenDisplay() {
     }
   }, [])
 
+  // -----------------------------
+  // Auto scroll up/down (only when content overflows)
+  // -----------------------------
+  React.useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+
+    // Respect reduced-motion settings
+    const prefersReduced =
+      window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (prefersReduced) return
+
+    let rafId = null
+    let direction = 1 // 1 = down, -1 = up
+    let lastT = performance.now()
+
+    // Tuning
+    const speedPxPerSec = 14 // slower = smaller
+    const edgePauseMs = 1400
+    const userPauseMs = 6000
+    let pauseUntil = 0
+
+    const atBottom = () => el.scrollTop >= el.scrollHeight - el.clientHeight - 2
+    const atTop = () => el.scrollTop <= 1
+
+    const step = (t) => {
+      const dt = (t - lastT) / 1000
+      lastT = t
+
+      // Only animate if content overflows
+      const overflow = el.scrollHeight > el.clientHeight + 4
+      if (!overflow) {
+        rafId = requestAnimationFrame(step)
+        return
+      }
+
+      // Pause if required
+      if (t < pauseUntil) {
+        rafId = requestAnimationFrame(step)
+        return
+      }
+
+      // Move
+      el.scrollTop += direction * speedPxPerSec * dt
+
+      // Edge handling: pause then reverse
+      if (direction > 0 && atBottom()) {
+        direction = -1
+        pauseUntil = t + edgePauseMs
+      } else if (direction < 0 && atTop()) {
+        direction = 1
+        pauseUntil = t + edgePauseMs
+      }
+
+      rafId = requestAnimationFrame(step)
+    }
+
+    // Pause auto-scroll if user interacts
+    const pauseForUser = () => {
+      pauseUntil = performance.now() + userPauseMs
+    }
+
+    el.addEventListener('wheel', pauseForUser, { passive: true })
+    el.addEventListener('touchstart', pauseForUser, { passive: true })
+    el.addEventListener('mousedown', pauseForUser, { passive: true })
+    window.addEventListener('keydown', pauseForUser)
+
+    rafId = requestAnimationFrame(step)
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      el.removeEventListener('wheel', pauseForUser)
+      el.removeEventListener('touchstart', pauseForUser)
+      el.removeEventListener('mousedown', pauseForUser)
+      window.removeEventListener('keydown', pauseForUser)
+    }
+    // restart if data changes height significantly
+  }, [items.length, darkMode])
+
+  // Data buckets
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
 
+  // Totals
   const counts = {}
   STANDARD_DB_AREAS.forEach((a) => {
     counts[a] = 0
@@ -267,13 +356,17 @@ export default function ScreenDisplay() {
 
   if (loading) return <div className="p-6 text-xl">Loading screen display…</div>
 
+  // Auto-hide area counters at zero
   const areaCounterTiles = STANDARD_DB_AREAS
     .map((a) => ({ db: a, label: counterLabel(a), value: counts[a] || 0 }))
     .filter((x) => x.value > 0)
     .sort((x, y) => SHORT_ORDER.indexOf(x.label) - SHORT_ORDER.indexOf(y.label))
 
   return (
-    <section className={`space-y-5 p-3 rounded-xl ${pageBg}`}>
+    <section
+      ref={scrollRef}
+      className={`space-y-5 p-3 rounded-xl ${pageBg} h-screen overflow-y-auto`}
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Screen display</h1>
@@ -313,7 +406,12 @@ export default function ScreenDisplay() {
       </p>
 
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
-        <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
+        <SectionHeader
+          title="Awaiting sign-in confirmation"
+          count={awaiting.length}
+          tone="green"
+          darkMode={darkMode}
+        />
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
@@ -396,10 +494,10 @@ export default function ScreenDisplay() {
                     <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
                     <td className={`px-4 py-3 ${subCls}`}>{areasTextForTables(i.areas)}</td>
                     <td className={`px-4 py-3 ${subCls}`}>
-                      {i.fob_number ? i.fob_number : <span className={darkMode ? 'text-slate-400' : 'text-slate-400'}>-</span>}
+                      {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
                     </td>
                     <td className={`px-4 py-3 ${subCls}`}>
-                      {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className={darkMode ? 'text-slate-400' : 'text-slate-400'}>-</span>}
+                      {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}
                     </td>
                   </tr>
                 )
