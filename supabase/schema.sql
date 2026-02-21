@@ -1,5 +1,5 @@
 -- ============================================
--- ContractorECR schema.sql (updated)
+-- ContractorECR schema.sql (clean)
 -- Includes:
 -- - profiles + roles (New_Teamleader/teamleader/admin/Display)
 -- - contractors table (areas text[])
@@ -138,6 +138,8 @@ create trigger set_timestamp
 create index if not exists contractors_phone_open_idx on public.contractors (phone, signed_out_at);
 create index if not exists contractors_status_idx on public.contractors (status);
 create index if not exists contractors_signed_in_idx on public.contractors (signed_in_at desc);
+
+-- (Optional but useful for signed-out filtering/reporting)
 create index if not exists contractors_signed_out_idx on public.contractors (signed_out_at desc);
 
 -- =========================
@@ -249,6 +251,7 @@ exception when others then
 end;
 $$;
 
+-- Grant hook execution to Supabase Auth role and revoke from public API roles
 grant usage on schema public to supabase_auth_admin;
 grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
 revoke execute on function public.custom_access_token_hook(jsonb) from anon, authenticated, public;
@@ -322,28 +325,30 @@ begin
 end;
 $$;
 
--- Keep execution restricted (service_role is ideal for scheduled jobs; authenticated kept from your original)
+-- Keep execution restricted (service_role ideal for scheduled jobs; keep authenticated as you had it)
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
 
 -- =========================
 -- OPTIONAL: Schedule daily cleanup via pg_cron (if available)
 -- Runs at 03:00 daily: keeps 30 days of data
+-- (Fixes nested $$ quoting issue by using $job$ ... $job$)
 -- =========================
 DO $$
 BEGIN
   IF EXISTS (select 1 from pg_extension where extname = 'pg_cron') THEN
-    -- schedule named job if not already present
-    IF NOT EXISTS (select 1 from cron.job where jobname = 'cleanup_contractors_daily') THEN
-      PERFORM cron.schedule(
-        'cleanup_contractors_daily',
-        '0 3 * * *',
-        $$select public.cleanup_old_contractor_data(30);$$
-      );
-    END IF;
+    BEGIN
+      IF NOT EXISTS (select 1 from cron.job where jobname = 'cleanup_contractors_daily') THEN
+        PERFORM cron.schedule(
+          'cleanup_contractors_daily',
+          '0 3 * * *',
+          $job$select public.cleanup_old_contractor_data(30);$job$
+        );
+      END IF;
+    EXCEPTION WHEN undefined_table THEN
+      -- cron schema/table not present (pg_cron not available / not exposed), ignore safely
+      NULL;
+    END;
   END IF;
-EXCEPTION WHEN undefined_table THEN
-  -- cron.job table not present (pg_cron not available), ignore safely
-  NULL;
 END $$;
 
 -- =========================
