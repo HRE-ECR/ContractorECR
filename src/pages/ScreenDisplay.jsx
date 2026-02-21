@@ -152,7 +152,7 @@ function useIsOverflowing(ref, depsKey) {
     // Also recheck periodically (covers sticky table/layout quirks)
     intervalId = window.setInterval(check, 800)
 
-    // Recheck on visibility/focus (alt-tab was “fixing” it)
+    // Recheck on visibility/focus
     const onVis = () => check()
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('focus', onVis)
@@ -171,17 +171,26 @@ function useIsOverflowing(ref, depsKey) {
 }
 
 /**
- * Robust ping-pong auto-scroll driven by setInterval (reliable repaint on kiosk screens).
+ * Robust ping-pong auto-scroll driven by setInterval.
  * Scrolls down -> pause -> up -> pause -> repeat.
+ *
+ * NOTE: We only reset scrollTop when resetKey changes (data/layout change),
+ * NOT when you pause/resume.
  */
 function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pauseMs = 1400, tickMs = 33 }) {
+  const prevResetKeyRef = React.useRef(null)
+
   React.useEffect(() => {
     if (!enabled) return
     const el = ref.current
     if (!el) return
 
-    // Start at top whenever (re)enabled
-    el.scrollTop = 0
+    // Only reset position when resetKey changes (e.g. data refresh),
+    // not when user pauses/resumes.
+    if (prevResetKeyRef.current !== resetKey) {
+      el.scrollTop = 0
+      prevResetKeyRef.current = resetKey
+    }
 
     let dir = 1 // 1 down, -1 up
     let phase = 'scroll' // 'scroll' | 'pause'
@@ -194,12 +203,11 @@ function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pau
       if (!node) return
 
       const now = performance.now()
-      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)) // clamp dt to avoid jumps
+      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000))
       last = now
 
       const maxScroll = Math.max(0, node.scrollHeight - node.clientHeight)
       if (maxScroll <= 1) {
-        // If overflow disappears, keep pinned at top
         node.scrollTop = 0
         return
       }
@@ -209,7 +217,6 @@ function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pau
         return
       }
 
-      // scroll phase
       const next = node.scrollTop + dir * speedPxPerSec * dt
       node.scrollTop = Math.min(maxScroll, Math.max(0, next))
 
@@ -223,20 +230,16 @@ function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pau
       }
     }
 
-    // Ensure we don’t start ticking before layout is ready
-    const start = () => {
-      last = performance.now()
-      timerId = window.setInterval(tick, tickMs)
-    }
-
+    // Start after layout settles
     const r1 = requestAnimationFrame(() => {
-      const r2 = requestAnimationFrame(() => start())
-      // cleanup inner rAF
-      ;(usePingPongAutoScroll._r2Cleanup = () => cancelAnimationFrame(r2))
+      const r2 = requestAnimationFrame(() => {
+        last = performance.now()
+        timerId = window.setInterval(tick, tickMs)
+      })
+      usePingPongAutoScroll._r2Cleanup = () => cancelAnimationFrame(r2)
     })
 
     const resync = () => {
-      // When returning focus, keep motion smooth
       last = performance.now()
     }
     document.addEventListener('visibilitychange', resync)
@@ -261,10 +264,16 @@ export default function ScreenDisplay() {
   const [darkMode, setDarkMode] = React.useState(false)
   const [isFullscreen, setIsFullscreen] = React.useState(false)
 
+  // ✅ NEW: Pause/Resume auto-scroll
+  const [autoScrollPaused, setAutoScrollPaused] = React.useState(false)
+
+  // ✅ NEW: Hide cursor when idle in fullscreen
+  const [cursorHidden, setCursorHidden] = React.useState(false)
+
   const signedInScrollRef = React.useRef(null)
   const awaitingScrollRef = React.useRef(null)
 
-  // Global styles: fullscreen nav hide + scrollbar hide-until-hover
+  // Global styles: fullscreen nav hide + scrollbar hide-until-hover + cursor hide class
   React.useEffect(() => {
     const styleId = 'screen-display-global-style'
     if (!document.getElementById(styleId)) {
@@ -276,6 +285,15 @@ export default function ScreenDisplay() {
         body.screen-display-fullscreen .app-navbar { display: none !important; }
         body.screen-display-fullscreen .navbar { display: none !important; }
 
+        /* Hide cursor when idle (fullscreen only) */
+        body.screen-display-cursor-hidden {
+          cursor: none !important;
+        }
+        body.screen-display-cursor-hidden * {
+          cursor: none !important;
+        }
+
+        /* Hide scrollbars until hover */
         .scrollbar-hide-until-hover {
           scrollbar-width: none;
           -ms-overflow-style: none;
@@ -303,12 +321,55 @@ export default function ScreenDisplay() {
     }
   }, [])
 
-  // body class for fullscreen
+  // body class for fullscreen nav hiding
   React.useEffect(() => {
     try {
       document.body.classList.toggle('screen-display-fullscreen', isFullscreen)
     } catch {
       // ignore
+    }
+  }, [isFullscreen])
+
+  // ✅ Apply cursor hidden class (only meaningful in fullscreen)
+  React.useEffect(() => {
+    try {
+      const shouldHide = isFullscreen && cursorHidden
+      document.body.classList.toggle('screen-display-cursor-hidden', shouldHide)
+    } catch {
+      // ignore
+    }
+  }, [isFullscreen, cursorHidden])
+
+  // ✅ Cursor idle detection in fullscreen
+  React.useEffect(() => {
+    if (!isFullscreen) {
+      setCursorHidden(false)
+      return
+    }
+
+    let t = null
+    const IDLE_MS = 2000
+
+    const showAndReset = () => {
+      setCursorHidden(false)
+      if (t) clearTimeout(t)
+      t = setTimeout(() => setCursorHidden(true), IDLE_MS)
+    }
+
+    // Start timer immediately on entering fullscreen
+    showAndReset()
+
+    window.addEventListener('mousemove', showAndReset, { passive: true })
+    window.addEventListener('mousedown', showAndReset, { passive: true })
+    window.addEventListener('touchstart', showAndReset, { passive: true })
+    window.addEventListener('keydown', showAndReset)
+
+    return () => {
+      if (t) clearTimeout(t)
+      window.removeEventListener('mousemove', showAndReset)
+      window.removeEventListener('mousedown', showAndReset)
+      window.removeEventListener('touchstart', showAndReset)
+      window.removeEventListener('keydown', showAndReset)
     }
   }, [isFullscreen])
 
@@ -452,19 +513,22 @@ export default function ScreenDisplay() {
   const lockSignedIn = onSite.length > SIGNED_IN_VISIBLE_ROWS
   const lockAwaiting = awaiting.length > AWAITING_VISIBLE_ROWS
 
-  // overflow detection (this is what makes it “live” and not dependent on repaint)
+  // overflow detection
   const signedInOverflowing = useIsOverflowing(signedInScrollRef, `${onSite.length}-${lastUpdated || 0}`)
   const awaitingOverflowing = useIsOverflowing(awaitingScrollRef, `${awaiting.length}-${lastUpdated || 0}`)
 
-  // final enable conditions: >N AND actually overflowed
-  const enableSignedInAutoScroll = lockSignedIn && signedInOverflowing
-  const enableAwaitingAutoScroll = lockAwaiting && awaitingOverflowing
+  // enable when >N AND overflow exists AND not paused
+  const enableSignedInAutoScroll = lockSignedIn && signedInOverflowing && !autoScrollPaused
+  const enableAwaitingAutoScroll = lockAwaiting && awaitingOverflowing && !autoScrollPaused
+
+  // whether we have any auto-scroll eligible right now (used to disable button when pointless)
+  const autoScrollEligible = (lockSignedIn && signedInOverflowing) || (lockAwaiting && awaitingOverflowing)
 
   // auto scroll (ping-pong)
   usePingPongAutoScroll({
     ref: signedInScrollRef,
     enabled: enableSignedInAutoScroll,
-    resetKey: `${enableSignedInAutoScroll}-${onSite.length}-${lastUpdated || 0}`,
+    resetKey: `${onSite.length}-${lastUpdated || 0}`,
     speedPxPerSec: 16,
     pauseMs: 1400,
     tickMs: 33,
@@ -473,7 +537,7 @@ export default function ScreenDisplay() {
   usePingPongAutoScroll({
     ref: awaitingScrollRef,
     enabled: enableAwaitingAutoScroll,
-    resetKey: `${enableAwaitingAutoScroll}-${awaiting.length}-${lastUpdated || 0}`,
+    resetKey: `${awaiting.length}-${lastUpdated || 0}`,
     speedPxPerSec: 16,
     pauseMs: 1400,
     tickMs: 33,
@@ -536,6 +600,11 @@ export default function ScreenDisplay() {
 
   const fullscreenShell = isFullscreen ? 'fixed inset-0 z-50 overflow-auto rounded-none' : 'rounded-xl'
 
+  const btnBaseDark = 'px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+  const btnBaseLight = 'px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+  const btnDisabledDark = 'px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-500 text-sm cursor-not-allowed'
+  const btnDisabledLight = 'px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 text-sm cursor-not-allowed'
+
   return (
     <section className={`space-y-4 p-2 ${fullscreenShell} ${pageBg}`}>
       <div className="flex items-start justify-between gap-3">
@@ -549,28 +618,42 @@ export default function ScreenDisplay() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Pause/Resume auto scroll */}
+          <button
+            type="button"
+            onClick={() => setAutoScrollPaused((v) => !v)}
+            disabled={!autoScrollEligible}
+            className={
+              !autoScrollEligible
+                ? darkMode
+                  ? btnDisabledDark
+                  : btnDisabledLight
+                : darkMode
+                  ? btnBaseDark
+                  : btnBaseLight
+            }
+            aria-label={autoScrollPaused ? 'Resume auto scroll' : 'Pause auto scroll'}
+            title={!autoScrollEligible ? 'Auto scroll not active' : autoScrollPaused ? 'Resume auto scroll' : 'Pause auto scroll'}
+          >
+            {autoScrollPaused ? '▶ Scroll' : '⏸ Pause'}
+          </button>
+
+          {/* Dark/Light */}
           <button
             type="button"
             onClick={() => setDarkMode((v) => !v)}
-            className={
-              darkMode
-                ? 'px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                : 'px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
-            }
+            className={darkMode ? btnBaseDark : btnBaseLight}
             aria-label="Toggle dark mode"
             title="Toggle dark mode"
           >
             {darkMode ? '☾ Dark' : '☀ Light'}
           </button>
 
+          {/* Fullscreen */}
           <button
             type="button"
             onClick={toggleFullscreen}
-            className={
-              darkMode
-                ? 'px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                : 'px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
-            }
+            className={darkMode ? btnBaseDark : btnBaseLight}
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
