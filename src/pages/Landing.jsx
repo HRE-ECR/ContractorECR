@@ -3,69 +3,81 @@ import { Link } from 'react-router-dom'
 
 export default function Landing() {
   return (
-    <section className="py-10 space-y-6">
-      <h1 className="text-3xl font-bold text-slate-900">
-        Craigentinny Contractor / Visitor Management
-      </h1>
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-50">
+      <div className="mx-auto w-full max-w-4xl px-4 py-10">
+        <header className="mb-8">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            Craigentinny Contractor / Visitor Management
+          </h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Please choose an option below.
+          </p>
+        </header>
 
-      <p className="text-slate-600">
-        Please choose an option below.
-      </p>
+        {/* Only 2 tiles now (Team leader login removed from landing page) */}
+        <div className="grid gap-5 sm:grid-cols-2">
+          {/* Sign-in (subtle green) */}
+          <Link
+            to="/signin"
+            className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition
+                       hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-emerald-950 dark:text-emerald-50">
+                  Contractor/Visitor sign-in
+                </h2>
+                <p className="mt-1 text-sm text-emerald-900 dark:text-emerald-100/95">
+                  Register your on-site presence.
+                </p>
+              </div>
 
-      {/* Only 2 tiles now (Team leader login removed from landing page) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Sign-in (subtle green) */}
-        <Link
-          to="/sign-in"
-          className="p-6 rounded-lg bg-emerald-50 border border-emerald-200 shadow-sm hover:shadow-md hover:bg-emerald-100 transition"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold text-emerald-900 mb-2">
-                Contractor/Visitor sign-in
-              </h2>
-              <p className="text-emerald-900/80">
-                Register your on-site presence.
-              </p>
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-xl
+                           bg-emerald-100/70 text-emerald-950 ring-1 ring-emerald-200
+                           group-hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-50 dark:ring-emerald-900/40"
+                aria-hidden="true"
+                title="Sign in"
+              >
+                ✓
+              </div>
             </div>
-            <span
-              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-800"
-              aria-hidden="true"
-              title="Sign-in"
-            >
-              ✓
-            </span>
-          </div>
-        </Link>
+          </Link>
 
-        {/* Sign-out (subtle red) */}
-        <Link
-          to="/sign-out"
-          className="p-6 rounded-lg bg-rose-50 border border-rose-200 shadow-sm hover:shadow-md hover:bg-rose-100 transition"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold text-rose-900 mb-2">
-                Contractor/Visitor sign-out
-              </h2>
-              <p className="text-rose-900/80">
-                Request to leave site. Team leader will confirm.
-              </p>
+          {/* Sign-out (subtle red) */}
+          <Link
+            to="/signout"
+            className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition
+                       hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-rose-950 dark:text-rose-50">
+                  Contractor/Visitor sign-out
+                </h2>
+                <p className="mt-1 text-sm text-rose-900 dark:text-rose-100/95">
+                  Request to leave site. Team leader will confirm.
+                </p>
+              </div>
+
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-xl
+                           bg-rose-100/70 text-rose-950 ring-1 ring-rose-200
+                           group-hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-50 dark:ring-rose-900/40"
+                aria-hidden="true"
+                title="Sign out"
+              >
+                ⟲
+              </div>
             </div>
-            <span
-              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-rose-100 border border-rose-200 text-rose-800"
-              aria-hidden="true"
-              title="Sign-out"
-            >
-              ⟲
-            </span>
-          </div>
-        </Link>
-      </div>
+          </Link>
+        </div>
 
-      <div className="text-xs text-slate-500 pt-2">
-        Please sign in, your First name and Phone number will be your unique identifier.
+        <p className="mt-8 text-sm text-slate-600 dark:text-slate-300">
+          Please sign in, your First name and Phone number will be your unique identifier.
+        </p>
       </div>
-    </section>
+    </div>
   )
 }
+``
