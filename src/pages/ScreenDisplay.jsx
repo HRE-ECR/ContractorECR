@@ -41,7 +41,9 @@ function extractOtherText(a) {
   const s = String(a).trim()
   if (!s) return ''
   const lower = s.toLowerCase()
-  if (lower.startsWith('other:')) return s.slice(s.indexOf(':') + 1).trim()
+  if (lower.startsWith('other:')) {
+    return s.slice(s.indexOf(':') + 1).trim()
+  }
   if (isOtherArea(s)) return s
   return ''
 }
@@ -68,14 +70,20 @@ function areasTextForTables(areas) {
     if (oth) others.add(oth)
   }
 
-  const stdList = Array.from(standards).sort((x, y) => SHORT_ORDER.indexOf(x) - SHORT_ORDER.indexOf(y))
-  const otherList = Array.from(others).sort((x, y) => x.localeCompare(y))
+  const stdList = Array.from(standards)
+  stdList.sort((x, y) => SHORT_ORDER.indexOf(x) - SHORT_ORDER.indexOf(y))
+
+  const otherList = Array.from(others)
+  otherList.sort((x, y) => x.localeCompare(y))
+
   return [...stdList, ...otherList].join(', ')
 }
 
 function hasAnyOther(areas) {
   const arr = Array.isArray(areas) ? areas : []
-  for (const a of arr) if (extractOtherText(a)) return true
+  for (const a of arr) {
+    if (extractOtherText(a)) return true
+  }
   return false
 }
 
@@ -103,11 +111,14 @@ function formatStaffEmail(email) {
   if (!e) return ''
   const local = e.split('@')[0] || ''
   if (!local) return ''
+
   const parts = local.split('.').filter(Boolean)
   const firstPart = parts[0] || local
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
+
   const initial = (firstPart[0] || '').toUpperCase()
   const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
+
   if (!initial || !surname) return local
   return `${initial}.${surname}`
 }
@@ -117,11 +128,12 @@ function formatStaffEmail(email) {
 // -----------------------------
 function SectionHeader({ title, count, tone = 'slate', darkMode }) {
   const tones = {
-    slate: 'bg-slate-900 text-white',
-    blue: 'bg-[#0b3a5a] text-white',
-    green: 'bg-emerald-700 text-white',
+    slate: darkMode ? 'bg-slate-900 text-white' : 'bg-slate-900 text-white',
+    blue: darkMode ? 'bg-[#0b3a5a] text-white' : 'bg-[#0b3a5a] text-white',
+    green: darkMode ? 'bg-emerald-700 text-white' : 'bg-emerald-700 text-white',
   }
   const cls = tones[tone] || tones.slate
+
   return (
     <div className={`px-4 py-2 font-semibold flex items-center justify-between ${cls}`}>
       <div className="text-sm tracking-wide">
@@ -132,47 +144,15 @@ function SectionHeader({ title, count, tone = 'slate', darkMode }) {
   )
 }
 
-function isOverflowing(el) {
-  return !!el && el.scrollHeight > el.clientHeight + 4
-}
-
-function setScrollTopCompat(el, top) {
-  if (!el) return false
-  const t = Math.max(0, top)
-  try {
-    el.scrollTop = t
-    return true
-  } catch {
-    try {
-      if (typeof el.scrollTo === 'function') {
-        el.scrollTo(0, t)
-        return true
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return false
-}
-
 export default function ScreenDisplay() {
   const [items, setItems] = React.useState([])
   const [loading, setLoading] = React.useState(true)
   const [lastUpdated, setLastUpdated] = React.useState(null)
   const [error, setError] = React.useState('')
 
+  // Dark mode state (persisted)
   const [darkMode, setDarkMode] = React.useState(false)
-  const [isFullscreen, setIsFullscreen] = React.useState(false)
 
-  // TEMP: Auto-scroll toggle
-  const [autoScrollEnabled, setAutoScrollEnabled] = React.useState(false)
-  const [scrollStatus, setScrollStatus] = React.useState('')
-
-  // Refs to the scrollable table containers
-  const awaitingScrollRef = React.useRef(null)
-  const onSiteScrollRef = React.useRef(null)
-
-  // Dark mode persistence
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem('screenDisplayDarkMode')
@@ -191,39 +171,6 @@ export default function ScreenDisplay() {
     }
   }, [darkMode])
 
-  // Track fullscreen changes
-  React.useEffect(() => {
-    const update = () => {
-      const fsEl = document.fullscreenElement || document.webkitFullscreenElement
-      setIsFullscreen(!!fsEl)
-    }
-    update()
-    document.addEventListener('fullscreenchange', update)
-    document.addEventListener('webkitfullscreenchange', update)
-    return () => {
-      document.removeEventListener('fullscreenchange', update)
-      document.removeEventListener('webkitfullscreenchange', update)
-    }
-  }, [])
-
-  async function toggleFullscreen() {
-    try {
-      const fsEl = document.fullscreenElement || document.webkitFullscreenElement
-      if (fsEl) {
-        if (document.exitFullscreen) await document.exitFullscreen()
-        else if (document.webkitExitFullscreen) await document.webkitExitFullscreen()
-        return
-      }
-      // Fullscreen the whole document for best compatibility
-      const target = document.documentElement
-      if (target.requestFullscreen) await target.requestFullscreen()
-      else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen()
-    } catch {
-      setError('Fullscreen could not be enabled in this browser/environment.')
-    }
-  }
-
-  // Data loading
   const loadRef = React.useRef(null)
 
   async function load() {
@@ -252,7 +199,6 @@ export default function ScreenDisplay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime refresh
   React.useEffect(() => {
     let debounceTimer = null
     const channel = supabase
@@ -271,114 +217,13 @@ export default function ScreenDisplay() {
     }
   }, [])
 
-  // Auto-scroll TABLES only (button control)
-  React.useEffect(() => {
-    if (!autoScrollEnabled) {
-      setScrollStatus('')
-      return
-    }
-
-    const prefersReduced =
-      window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReduced) {
-      setScrollStatus('Auto-scroll disabled (reduced motion)')
-      return
-    }
-
-    // Choose which table to scroll:
-    // Priority: On-site (usually longer), else Awaiting.
-    const onSiteEl = onSiteScrollRef.current
-    const awaitingEl = awaitingScrollRef.current
-
-    const target =
-      (onSiteEl && isOverflowing(onSiteEl) ? onSiteEl : null) ||
-      (awaitingEl && isOverflowing(awaitingEl) ? awaitingEl : null)
-
-    if (!target) {
-      setScrollStatus('Auto-scroll ON • but no table overflow')
-      return
-    }
-
-    let rafId = null
-    let direction = 1
-    let lastT = performance.now()
-
-    const speedPxPerSec = 18 // table scroll can be a touch faster
-    const edgePauseMs = 1200
-    let pauseUntil = 0
-
-    const maxScrollTop = () => Math.max(0, target.scrollHeight - target.clientHeight)
-    const atBottom = () => target.scrollTop >= maxScrollTop() - 1
-    const atTop = () => target.scrollTop <= 1
-
-    const updateStatus = () => {
-      const max = maxScrollTop()
-      setScrollStatus(
-        `Auto-scroll ON • target: ${target === onSiteEl ? 'on-site table' : 'awaiting table'} • pos: ${Math.round(
-          target.scrollTop
-        )}/${Math.round(max)}`
-      )
-    }
-
-    const statusTimer = setInterval(updateStatus, 600)
-    updateStatus()
-
-    const startAt = performance.now() + (isFullscreen ? 250 : 0)
-
-    const step = (t) => {
-      const dt = Math.min((t - lastT) / 1000, 0.06)
-      lastT = t
-
-      if (t < startAt) {
-        rafId = requestAnimationFrame(step)
-        return
-      }
-
-      // If overflow disappears (data changed), stop.
-      if (!isOverflowing(target)) {
-        setScrollStatus('Auto-scroll ON • overflow ended')
-        return
-      }
-
-      if (t < pauseUntil) {
-        rafId = requestAnimationFrame(step)
-        return
-      }
-
-      const next = Math.min(Math.max(target.scrollTop + direction * speedPxPerSec * dt, 0), maxScrollTop())
-      const ok = setScrollTopCompat(target, next)
-
-      if (!ok) {
-        setScrollStatus('Auto-scroll ON • but browser blocked programmatic scrolling')
-        return
-      }
-
-      if (direction > 0 && atBottom()) {
-        direction = -1
-        pauseUntil = t + edgePauseMs
-      } else if (direction < 0 && atTop()) {
-        direction = 1
-        pauseUntil = t + edgePauseMs
-      }
-
-      rafId = requestAnimationFrame(step)
-    }
-
-    rafId = requestAnimationFrame(step)
-
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId)
-      clearInterval(statusTimer)
-    }
-  }, [autoScrollEnabled, items.length, darkMode, isFullscreen])
-
-  // Data buckets
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
 
-  // Totals
   const counts = {}
-  STANDARD_DB_AREAS.forEach((a) => (counts[a] = 0))
+  STANDARD_DB_AREAS.forEach((a) => {
+    counts[a] = 0
+  })
   let otherCount = 0
 
   onSite.forEach((i) => {
@@ -396,8 +241,10 @@ export default function ScreenDisplay() {
   }
 
   function CounterTile({ label, value }) {
+    const tileCls =
+      'px-3 py-2 rounded-lg border shadow-sm flex items-center justify-between border-[#0b3a5a] bg-[#0b3a5a] text-white'
     return (
-      <div className="px-3 py-2 rounded-lg border shadow-sm flex items-center justify-between border-[#0b3a5a] bg-[#0b3a5a] text-white">
+      <div className={tileCls}>
         <div className="text-[11px] font-semibold truncate opacity-90">{label}</div>
         <div className="text-lg font-bold tabular-nums">{value}</div>
       </div>
@@ -409,6 +256,7 @@ export default function ScreenDisplay() {
   const cardBase = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
   const theadBase = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'
 
+  // More vibrant highlights
   const awaitingRowBg = darkMode ? 'bg-emerald-900/45' : 'bg-emerald-100/80'
   const awaitingTextMain = darkMode ? 'text-emerald-100' : 'text-emerald-950'
   const awaitingTextSub = darkMode ? 'text-emerald-100/90' : 'text-emerald-950/90'
@@ -425,7 +273,7 @@ export default function ScreenDisplay() {
     .sort((x, y) => SHORT_ORDER.indexOf(x.label) - SHORT_ORDER.indexOf(y.label))
 
   return (
-    <section className={`space-y-5 p-3 rounded-xl ${pageBg} h-screen overflow-hidden`} style={{ height: '100vh' }}>
+    <section className={`space-y-5 p-3 rounded-xl ${pageBg}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Screen display</h1>
@@ -434,52 +282,21 @@ export default function ScreenDisplay() {
             {lastUpdated ? ` • Last updated: ${formatDayMonthTime(lastUpdated)}` : ''}
           </p>
           {error && <p className="text-red-400 mt-2">{error}</p>}
-          {scrollStatus && (
-            <p className={`mt-1 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{scrollStatus}</p>
-          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setDarkMode((v) => !v)}
-            className={
-              darkMode
-                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
-            }
-          >
-            {darkMode ? '☾ Dark' : '☀ Light'}
-          </button>
-
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className={
-              darkMode
-                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
-            }
-          >
-            {isFullscreen ? '⤢ Exit' : '⤢ Full'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setAutoScrollEnabled((v) => !v)}
-            className={
-              autoScrollEnabled
-                ? darkMode
-                  ? 'px-3 py-2 rounded-lg border border-emerald-700 bg-emerald-900/40 hover:bg-emerald-900/55 text-emerald-100 text-sm'
-                  : 'px-3 py-2 rounded-lg border border-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-sm'
-                : darkMode
-                  ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                  : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
-            }
-          >
-            {autoScrollEnabled ? '⇵ Scroll ON' : '⇵ Scroll OFF'}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setDarkMode((v) => !v)}
+          className={
+            darkMode
+              ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+              : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+          }
+          aria-label="Toggle dark mode"
+          title="Toggle dark mode"
+        >
+          {darkMode ? '☾ Dark' : '☀ Light'}
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10 gap-2">
@@ -495,14 +312,9 @@ export default function ScreenDisplay() {
         “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
       </p>
 
-      {/* Awaiting */}
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
         <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
-        <div
-          ref={awaitingScrollRef}
-          className="overflow-x-auto overflow-y-auto"
-          style={{ maxHeight: '28vh' }}
-        >
+        <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
               <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
@@ -519,9 +331,15 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
+
               {awaiting.map((i) => (
-                <tr key={i.id} className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-                  <td className={`px-4 py-3 font-semibold ${awaitingTextMain}`}>{i.first_name} {i.surname}</td>
+                <tr
+                  key={i.id}
+                  className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
+                >
+                  <td className={`px-4 py-3 font-semibold ${awaitingTextMain}`}>
+                    {i.first_name} {i.surname}
+                  </td>
                   <td className={`px-4 py-3 ${awaitingTextSub}`}>{i.company}</td>
                   <td className={`px-4 py-3 ${awaitingTextSub}`}>{areasTextForTables(i.areas)}</td>
                 </tr>
@@ -531,14 +349,9 @@ export default function ScreenDisplay() {
         </div>
       </div>
 
-      {/* On site */}
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
         <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" darkMode={darkMode} />
-        <div
-          ref={onSiteScrollRef}
-          className="overflow-x-auto overflow-y-auto"
-          style={{ maxHeight: '40vh' }}
-        >
+        <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
               <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
@@ -557,19 +370,37 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
+
               {onSite.map((i) => {
                 const awaitingSignOut = !!i.signout_requested
                 const rowBg = awaitingSignOut ? signoutRowBg : ''
-                const mainCls = awaitingSignOut ? signoutTextMain : darkMode ? 'text-slate-100' : 'text-slate-900'
-                const subCls = awaitingSignOut ? signoutTextSub : darkMode ? 'text-slate-200' : 'text-slate-700'
+                const mainCls = awaitingSignOut
+                  ? signoutTextMain
+                  : darkMode
+                    ? 'text-slate-100'
+                    : 'text-slate-900'
+                const subCls = awaitingSignOut
+                  ? signoutTextSub
+                  : darkMode
+                    ? 'text-slate-200'
+                    : 'text-slate-700'
 
                 return (
-                  <tr key={i.id} className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-                    <td className={`px-4 py-3 font-semibold ${mainCls}`}>{i.first_name} {i.surname}</td>
+                  <tr
+                    key={i.id}
+                    className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
+                  >
+                    <td className={`px-4 py-3 font-semibold ${mainCls}`}>
+                      {i.first_name} {i.surname}
+                    </td>
                     <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
                     <td className={`px-4 py-3 ${subCls}`}>{areasTextForTables(i.areas)}</td>
-                    <td className={`px-4 py-3 ${subCls}`}>{i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}</td>
-                    <td className={`px-4 py-3 ${subCls}`}>{formatStaffEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}</td>
+                    <td className={`px-4 py-3 ${subCls}`}>
+                      {i.fob_number ? i.fob_number : <span className={darkMode ? 'text-slate-400' : 'text-slate-400'}>-</span>}
+                    </td>
+                    <td className={`px-4 py-3 ${subCls}`}>
+                      {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className={darkMode ? 'text-slate-400' : 'text-slate-400'}>-</span>}
+                    </td>
                   </tr>
                 )
               })}
