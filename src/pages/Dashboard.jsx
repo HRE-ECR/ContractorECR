@@ -69,12 +69,6 @@ function shortStandardArea(a) {
   return ''
 }
 
-/**
- * Areas for tables:
- * - Show standard areas shortened (M1, M2, Insp, RShed, 1CL...)
- * - For "Other: Yard", show "Yard" (no word Other)
- * - For any unknown/non-standard area, show the raw text
- */
 function areasTextForTables(areas) {
   const arr = Array.isArray(areas) ? areas : []
   const standards = new Set()
@@ -99,10 +93,6 @@ function areasTextForTables(areas) {
   return [...stdList, ...otherList].join(', ')
 }
 
-/**
- * Areas for counters:
- * "Other" counter counts contractors who had ANY other entry
- */
 function hasAnyOther(areas) {
   const arr = Array.isArray(areas) ? areas : []
   for (const a of arr) {
@@ -119,26 +109,18 @@ function formatDateDayMonthTime(value) {
   if (!value) return ''
   try {
     const d = new Date(value)
-    const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) // no year
-    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) // no seconds
+    const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
     return `${date} ${time}`
   } catch {
     return String(value)
   }
 }
 
-/**
- * Staff email -> "J.Edwards"
- * - Takes local-part (before @)
- * - If "First.Last" => "F.Last" with proper casing
- * - If only one part => "F.Part"
- * - If odd formats => graceful fallback
- */
 function formatStaffEmail(email) {
   if (!email) return ''
   const e = String(email).trim()
   if (!e) return ''
-
   const local = e.split('@')[0] || ''
   if (!local) return ''
 
@@ -147,8 +129,7 @@ function formatStaffEmail(email) {
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
 
   const initial = (firstPart[0] || '').toUpperCase()
-  const surname =
-    (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
+  const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
 
   if (!initial || !surname) return local
   return `${initial}.${surname}`
@@ -182,13 +163,11 @@ function downloadCsv(filename, rows) {
 
 // -----------------------------
 // JWT role helper (NO profiles query -> avoids Zscaler)
-// Reads role from JWT access_token payload (most reliable)
 // -----------------------------
 function decodeJwtPayload(token) {
   if (!token || typeof token !== 'string') return null
   const parts = token.split('.')
   if (parts.length < 2) return null
-
   try {
     let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
     while (b64.length % 4) b64 += '='
@@ -200,7 +179,6 @@ function decodeJwtPayload(token) {
 }
 
 async function getAppRoleFromAuth() {
-  // 1) Try session access token first
   try {
     const { data } = await supabase.auth.getSession()
     const token = data?.session?.access_token
@@ -211,19 +189,16 @@ async function getAppRoleFromAuth() {
     // ignore
   }
 
-  // 2) Fallback to localStorage (no network)
   try {
     const key = Object.keys(localStorage).find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
     if (!key) return null
     const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-
     const accessToken = parsed?.currentSession?.access_token || parsed?.access_token || null
     const payload = decodeJwtPayload(accessToken)
     const role = payload?.app_metadata?.app_role || payload?.user_role || null
     if (role) return role
-
     return parsed?.currentSession?.user?.app_metadata?.app_role || null
   } catch {
     return null
@@ -261,14 +236,10 @@ function Summary({ items }) {
 
   onSite.forEach((i) => {
     const areas = Array.isArray(i.areas) ? i.areas : []
-
-    // per-area counting for standard
     areas.forEach((a) => {
       const s = shortStandardArea(a)
       if (s && Object.prototype.hasOwnProperty.call(counts, s)) counts[s] += 1
     })
-
-    // contractor-level other count
     if (hasAnyOther(areas)) otherCount += 1
   })
 
@@ -284,12 +255,10 @@ function Summary({ items }) {
 
   const tiles = []
   tiles.push(tile('Total', onSite.length))
-
   SHORT_ORDER.forEach((k) => {
     const v = counts[k] || 0
     if (v > 0) tiles.push(tile(k, v))
   })
-
   if (otherCount > 0) tiles.push(tile('Other', otherCount))
 
   return (
@@ -300,24 +269,24 @@ function Summary({ items }) {
 }
 
 // -----------------------------
-// Awaiting Row
+// Awaiting Row (MORE VIBRANT GREEN)
 // -----------------------------
 function AwaitingRow({ item, onConfirm }) {
   const [fob, setFob] = React.useState('')
   return (
-    <tr className="bg-emerald-50/70">
-      <td className="px-2 py-2 whitespace-nowrap">
+    <tr className="bg-emerald-100/80">
+      <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-950">
         {item.first_name} {item.surname}
       </td>
-      <td className="px-2 py-2">{item.company}</td>
-      <td className="px-2 py-2 whitespace-nowrap">{item.phone}</td>
-      <td className="px-2 py-2">{areasTextForTables(item.areas)}</td>
-      <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(item.signed_in_at)}</td>
+      <td className="px-2 py-2 text-emerald-950/90">{item.company}</td>
+      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90">{item.phone}</td>
+      <td className="px-2 py-2 text-emerald-950/90">{areasTextForTables(item.areas)}</td>
+      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90">{formatDateDayMonthTime(item.signed_in_at)}</td>
       <td className="px-2 py-2">
         <input
           value={fob}
           onChange={(e) => setFob(e.target.value)}
-          className="border rounded px-2 py-1 w-28"
+          className="border rounded px-2 py-1 w-28 bg-white"
           placeholder="(optional)"
         />
       </td>
@@ -343,10 +312,6 @@ export default function Dashboard() {
   const [isAdmin, setIsAdmin] = React.useState(false)
   const [appRole, setAppRole] = React.useState(null)
   const [error, setError] = React.useState('')
-
-  // Signed-out display controls:
-  // false = last 12 hours + 5 rows
-  // true  = last 4 days + 30 rows
   const [signedOutExpanded, setSignedOutExpanded] = React.useState(false)
 
   function hasFobIssued(item) {
@@ -357,12 +322,10 @@ export default function Dashboard() {
   function canConfirmSignOut(item) {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
-
     if (isAdmin) {
       if (fobIssued) return !!item.fob_returned
       return !!item.signout_requested
     }
-
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -381,12 +344,11 @@ export default function Dashboard() {
 
   async function load() {
     setError('')
-
     const role = await getAppRoleFromAuth()
     setAppRole(role)
     setIsAdmin(role === 'admin')
 
-    // Display role cannot access dashboard at all
+    // Display role cannot access dashboard
     if (role === 'Display') {
       setItems([])
       return
@@ -415,10 +377,8 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime refresh (only if not Display)
   React.useEffect(() => {
     if (appRole === 'Display') return
-
     let debounceTimer = null
     const channel = supabase
       .channel('contractors-db-changes')
@@ -557,15 +517,12 @@ export default function Dashboard() {
 
   if (loading) return <div className="p-4">Loading...</div>
 
-  // Hard block for Display role
   if (appRole === 'Display') {
     return (
       <div className="p-6 max-w-xl mx-auto">
         <div className="border border-slate-200 rounded-lg p-4 bg-white shadow-sm">
           <h2 className="text-xl font-bold mb-2">Access denied</h2>
-          <p className="text-slate-700">
-            Display accounts cannot access the Dashboard. Please use the Screen Display page.
-          </p>
+          <p className="text-slate-700">Display accounts cannot access the Dashboard. Please use the Screen Display page.</p>
         </div>
       </div>
     )
@@ -590,30 +547,19 @@ export default function Dashboard() {
       <h2 className="text-xl font-bold mb-2">Contractor/Visitor details</h2>
 
       <div className="flex flex-wrap gap-2 items-center mb-3">
-        <button
-          onClick={handleRefresh}
-          className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
-        >
+        <button onClick={handleRefresh} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
 
-        <button
-          onClick={exportAllTables}
-          className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300"
-        >
+        <button onClick={exportAllTables} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
           Export all tables (CSV)
         </button>
       </div>
 
-      {error && (
-        <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
 
       <Summary items={items} />
 
-      {/* Awaiting confirmation */}
       <SectionHeader title="Awaiting confirmation" tone="green" />
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
@@ -643,7 +589,6 @@ export default function Dashboard() {
         </table>
       </div>
 
-      {/* On site */}
       <SectionHeader title="Signed in contractors/visitors" tone="blue" />
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
@@ -675,11 +620,13 @@ export default function Dashboard() {
               const canSignOut = canConfirmSignOut(i)
               const reason = signOutDisabledReason(i)
               const fobIssued = hasFobIssued(i)
-              const rowTone = i.signout_requested ? 'bg-rose-50/70' : ''
+
+              // MORE VIBRANT RED when signout requested
+              const rowTone = i.signout_requested ? 'bg-rose-100/80' : ''
 
               return (
                 <tr key={i.id} className={rowTone}>
-                  <td className="px-2 py-2 whitespace-nowrap">
+                  <td className="px-2 py-2 whitespace-nowrap font-semibold">
                     {i.first_name} {i.surname}
                   </td>
                   <td className="px-2 py-2">{i.company}</td>
@@ -687,9 +634,7 @@ export default function Dashboard() {
                   <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
-                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
 
                   <td className="px-2 py-2 whitespace-nowrap">
                     <input
@@ -710,9 +655,7 @@ export default function Dashboard() {
                       disabled={!canSignOut}
                       title={!canSignOut ? reason : 'Confirm sign-out'}
                       className={`px-3 py-1 rounded whitespace-nowrap text-sm ${
-                        canSignOut
-                          ? 'bg-green-600 hover:bg-green-700 text-white'
-                          : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                        canSignOut ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'
                       }`}
                       style={{ fontSize: '0.80rem' }}
                     >
@@ -722,10 +665,7 @@ export default function Dashboard() {
 
                   {isAdmin && (
                     <td className="px-2 py-2 whitespace-nowrap">
-                      <button
-                        onClick={() => remove(i.id)}
-                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
-                      >
+                      <button onClick={() => remove(i.id)} className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded">
                         Delete
                       </button>
                     </td>
@@ -737,7 +677,6 @@ export default function Dashboard() {
         </table>
       </div>
 
-      {/* Signed out */}
       <div className="mt-5 mb-2 flex items-center justify-between gap-2">
         <div className="bg-slate-900 text-white rounded-md px-3 py-1 text-sm font-semibold tracking-wide">
           Signed out (last {signedOutExpanded ? 30 : 5}
@@ -745,19 +684,13 @@ export default function Dashboard() {
         </div>
 
         {!signedOutExpanded && signedOutAll.length > 5 && (
-          <button
-            onClick={() => setSignedOutExpanded(true)}
-            className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
-          >
+          <button onClick={() => setSignedOutExpanded(true)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
             Show more
           </button>
         )}
 
         {signedOutExpanded && (
-          <button
-            onClick={() => setSignedOutExpanded(false)}
-            className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300"
-          >
+          <button onClick={() => setSignedOutExpanded(false)} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
             Show less
           </button>
         )}
@@ -800,21 +733,16 @@ export default function Dashboard() {
                 <td className="px-2 py-2 whitespace-nowrap">{i.fob_returned ? 'Yes' : 'No'}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
-                <td className="px-2 py-2 whitespace-nowrap">
-                  {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
-                </td>
-                <td className="px-2 py-2 whitespace-nowrap">
-                  {formatStaffEmail(i.signed_out_by_email) || '-'}
-                </td>
+                <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
+                <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.signed_out_by_email) || '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      <div className="mt-3 text-xs text-slate-600">
-        Signed-out records are kept for up to 30 days and then automatically removed.
-      </div>
+      <div className="mt-3 text-xs text-slate-600">Signed-out records are kept for up to 30 days and then automatically removed.</div>
     </div>
   )
 }
+``
