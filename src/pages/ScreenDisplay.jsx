@@ -214,7 +214,7 @@ export default function ScreenDisplay() {
       const target = scrollRef.current || document.documentElement
       if (target.requestFullscreen) await target.requestFullscreen()
       else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen()
-    } catch (e) {
+    } catch {
       setError('Fullscreen could not be enabled in this browser/environment.')
     }
   }
@@ -250,7 +250,7 @@ export default function ScreenDisplay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime refresh (Option 1): refresh on any contractors changes
+  // Realtime refresh
   React.useEffect(() => {
     let debounceTimer = null
     const channel = supabase
@@ -272,15 +272,17 @@ export default function ScreenDisplay() {
   // -----------------------------
   // Auto scroll up/down
   // - Only if content overflows ("text off screen")
-  // - Only starts after 5 seconds of NO input
-  // - Any input pauses + resets the 5s timer
-  // - Re-inits on fullscreen changes to avoid stuck state
+  // - Starts after 5 seconds of NO user-intent input
+  // - Any user-intent input pauses + resets the 5s timer
+  // - Re-inits on fullscreen changes
+  //
+  // IMPORTANT: We do NOT use mousemove as activity because many kiosk setups
+  // constantly emit tiny mousemove events, preventing "idle" from ever happening.
   // -----------------------------
   React.useEffect(() => {
     const el = scrollRef.current
     if (!el) return
 
-    // Respect reduced-motion settings
     const prefersReduced =
       window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (prefersReduced) return
@@ -292,40 +294,39 @@ export default function ScreenDisplay() {
     // Tuning
     const speedPxPerSec = 14
     const edgePauseMs = 1400
-    const inactivityMs = 5000 // <-- your requested "start after 5s no input"
+    const inactivityMs = 5000 // start after 5s idle
 
-    // The time (performance.now) after which scrolling is allowed
+    // Time after which scrolling is allowed
     let allowScrollAt = performance.now() + inactivityMs
 
     const overflowNow = () => el.scrollHeight > el.clientHeight + 4
     const atBottom = () => el.scrollTop >= el.scrollHeight - el.clientHeight - 2
     const atTop = () => el.scrollTop <= 1
 
-    const noteUserActivity = () => {
-      // Any input pauses scrolling and restarts the 5s inactivity countdown
+    const noteUserIntent = () => {
       allowScrollAt = performance.now() + inactivityMs
     }
 
-    // If user interacts with the scroll container or page, pause auto-scroll
-    el.addEventListener('wheel', noteUserActivity, { passive: true })
-    el.addEventListener('touchstart', noteUserActivity, { passive: true })
-    el.addEventListener('mousedown', noteUserActivity, { passive: true })
-    window.addEventListener('keydown', noteUserActivity)
-    window.addEventListener('mousemove', noteUserActivity, { passive: true })
+    // User-intent events only (no mousemove!)
+    el.addEventListener('wheel', noteUserIntent, { passive: true })
+    el.addEventListener('touchstart', noteUserIntent, { passive: true })
+    el.addEventListener('mousedown', noteUserIntent, { passive: true })
+    el.addEventListener('pointerdown', noteUserIntent, { passive: true })
+    window.addEventListener('keydown', noteUserIntent)
 
-    // When the element resizes (fullscreen toggles), clientHeight changes.
-    // Use ResizeObserver to ensure overflow is re-evaluated correctly.
+    // Re-evaluate overflow when size changes (fullscreen toggles / layout changes)
     let ro = null
     if (window.ResizeObserver) {
       ro = new ResizeObserver(() => {
-        // Re-arm the inactivity timer gently when layout changes
-        allowScrollAt = performance.now() + Math.min(1200, inactivityMs)
+        // Don’t count as user input; just ensure we don't jump on next frame
+        lastT = performance.now()
       })
       ro.observe(el)
     }
 
     const step = (t) => {
-      const dt = (t - lastT) / 1000
+      // cap dt to avoid huge jumps after tab pause
+      const dt = Math.min((t - lastT) / 1000, 0.06)
       lastT = t
 
       // Only scroll if content is actually off-screen
@@ -359,11 +360,11 @@ export default function ScreenDisplay() {
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
-      el.removeEventListener('wheel', noteUserActivity)
-      el.removeEventListener('touchstart', noteUserActivity)
-      el.removeEventListener('mousedown', noteUserActivity)
-      window.removeEventListener('keydown', noteUserActivity)
-      window.removeEventListener('mousemove', noteUserActivity)
+      el.removeEventListener('wheel', noteUserIntent)
+      el.removeEventListener('touchstart', noteUserIntent)
+      el.removeEventListener('mousedown', noteUserIntent)
+      el.removeEventListener('pointerdown', noteUserIntent)
+      window.removeEventListener('keydown', noteUserIntent)
       if (ro) ro.disconnect()
     }
   }, [items.length, darkMode, isFullscreen])
@@ -409,7 +410,7 @@ export default function ScreenDisplay() {
   const cardBase = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
   const theadBase = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'
 
-  // More vibrant highlights
+  // Vibrant highlights
   const awaitingRowBg = darkMode ? 'bg-emerald-900/45' : 'bg-emerald-100/80'
   const awaitingTextMain = darkMode ? 'text-emerald-100' : 'text-emerald-950'
   const awaitingTextSub = darkMode ? 'text-emerald-100/90' : 'text-emerald-950/90'
@@ -420,7 +421,6 @@ export default function ScreenDisplay() {
 
   if (loading) return <div className="p-6 text-xl">Loading screen display…</div>
 
-  // Auto-hide area counters at zero
   const areaCounterTiles = STANDARD_DB_AREAS
     .map((a) => ({ db: a, label: counterLabel(a), value: counts[a] || 0 }))
     .filter((x) => x.value > 0)
@@ -430,7 +430,7 @@ export default function ScreenDisplay() {
     <section
       ref={scrollRef}
       className={`space-y-5 p-3 rounded-xl ${pageBg} h-screen overflow-y-auto`}
-      style={{ height: '100vh' }} // helps some fullscreen setups keep correct height
+      style={{ height: '100vh' }}
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -506,6 +506,7 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
+
               {awaiting.map((i) => (
                 <tr
                   key={i.id}
@@ -544,6 +545,7 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
+
               {onSite.map((i) => {
                 const awaitingSignOut = !!i.signout_requested
                 const rowBg = awaitingSignOut ? signoutRowBg : ''
