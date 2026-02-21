@@ -73,9 +73,6 @@ function hasAnyOther(areas) {
   return false
 }
 
-// -----------------------------
-// Date/time formatting (day+month, no year; time no seconds)
-// -----------------------------
 function formatDayMonthTime(ts) {
   if (!ts) return ''
   try {
@@ -88,9 +85,6 @@ function formatDayMonthTime(ts) {
   }
 }
 
-// -----------------------------
-// Signed-in/out by formatting: "Jason.Edwards@..." -> "J.Edwards"
-// -----------------------------
 function formatStaffEmail(email) {
   if (!email) return ''
   const e = String(email).trim()
@@ -106,9 +100,6 @@ function formatStaffEmail(email) {
   return `${initial}.${surname}`
 }
 
-// -----------------------------
-// Solid section header (minimal height)
-// -----------------------------
 function SectionHeader({ title, count, tone = 'slate' }) {
   const tones = {
     slate: 'bg-slate-900 text-white',
@@ -127,53 +118,100 @@ function SectionHeader({ title, count, tone = 'slate' }) {
 }
 
 /**
- * Ping-pong auto-scroll hook:
- * - Scrolls down → pauses → scrolls up → pauses → repeats.
- * - Does NOT bail out if overflow isn't ready yet (prevents "only scrolls after alt-tab").
- * - Resyncs timing when tab becomes visible/focused.
+ * Detects whether an element is actually overflowed (scrollable vertically).
+ * Uses ResizeObserver + periodic recheck to cope with font/table layout settling.
  */
-function usePingPongAutoScroll({ ref, enabled, speedPxPerSec = 18, pauseMs = 1200, resetKey }) {
+function useIsOverflowing(ref, depsKey) {
+  const [overflowing, setOverflowing] = React.useState(false)
+
+  React.useEffect(() => {
+    let ro = null
+    let intervalId = null
+    let raf1 = null
+    let raf2 = null
+
+    const check = () => {
+      const el = ref.current
+      if (!el) return
+      const has = el.scrollHeight > el.clientHeight + 1
+      setOverflowing(has)
+    }
+
+    // Delay checks to allow table/layout/fonts to settle
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        check()
+      })
+    })
+
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => check())
+      if (ref.current) ro.observe(ref.current)
+    }
+
+    // Also recheck periodically (covers sticky table/layout quirks)
+    intervalId = window.setInterval(check, 800)
+
+    // Recheck on visibility/focus (alt-tab was “fixing” it)
+    const onVis = () => check()
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', onVis)
+
+    return () => {
+      if (raf1) cancelAnimationFrame(raf1)
+      if (raf2) cancelAnimationFrame(raf2)
+      if (intervalId) clearInterval(intervalId)
+      if (ro) ro.disconnect()
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('focus', onVis)
+    }
+  }, [ref, depsKey])
+
+  return overflowing
+}
+
+/**
+ * Robust ping-pong auto-scroll driven by setInterval (reliable repaint on kiosk screens).
+ * Scrolls down -> pause -> up -> pause -> repeat.
+ */
+function usePingPongAutoScroll({ ref, enabled, resetKey, speedPxPerSec = 16, pauseMs = 1400, tickMs = 33 }) {
   React.useEffect(() => {
     if (!enabled) return
-
     const el = ref.current
     if (!el) return
 
-    // Reset to top each time we restart
+    // Start at top whenever (re)enabled
     el.scrollTop = 0
 
-    let rafId = null
-    let last = performance.now()
     let dir = 1 // 1 down, -1 up
     let phase = 'scroll' // 'scroll' | 'pause'
     let pauseUntil = 0
+    let last = performance.now()
+    let timerId = null
 
-    const step = (now) => {
+    const tick = () => {
       const node = ref.current
       if (!node) return
 
-      // If tab was inactive, avoid huge dt jump
-      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)) // clamp dt
+      const now = performance.now()
+      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)) // clamp dt to avoid jumps
       last = now
 
-      // Always recompute overflow — layout can change after fonts load
       const maxScroll = Math.max(0, node.scrollHeight - node.clientHeight)
-
       if (maxScroll <= 1) {
-        // No overflow yet: keep checking (DON'T bail)
+        // If overflow disappears, keep pinned at top
         node.scrollTop = 0
-        rafId = requestAnimationFrame(step)
         return
       }
 
       if (phase === 'pause') {
         if (now >= pauseUntil) phase = 'scroll'
-        rafId = requestAnimationFrame(step)
         return
       }
 
-      // phase === 'scroll'
-      node.scrollTop = Math.min(maxScroll, Math.max(0, node.scrollTop + dir * speedPxPerSec * dt))
+      // scroll phase
+      const next = node.scrollTop + dir * speedPxPerSec * dt
+      node.scrollTop = Math.min(maxScroll, Math.max(0, next))
 
       const atTop = node.scrollTop <= 0.5
       const atBottom = node.scrollTop >= maxScroll - 0.5
@@ -183,26 +221,35 @@ function usePingPongAutoScroll({ ref, enabled, speedPxPerSec = 18, pauseMs = 120
         pauseUntil = now + pauseMs
         dir *= -1
       }
-
-      rafId = requestAnimationFrame(step)
     }
+
+    // Ensure we don’t start ticking before layout is ready
+    const start = () => {
+      last = performance.now()
+      timerId = window.setInterval(tick, tickMs)
+    }
+
+    const r1 = requestAnimationFrame(() => {
+      const r2 = requestAnimationFrame(() => start())
+      // cleanup inner rAF
+      ;(usePingPongAutoScroll._r2Cleanup = () => cancelAnimationFrame(r2))
+    })
 
     const resync = () => {
-      // Reset timing so animation continues smoothly when returning to the tab/window
+      // When returning focus, keep motion smooth
       last = performance.now()
     }
-
     document.addEventListener('visibilitychange', resync)
     window.addEventListener('focus', resync)
 
-    rafId = requestAnimationFrame(step)
-
     return () => {
-      if (rafId) cancelAnimationFrame(rafId)
+      cancelAnimationFrame(r1)
+      if (usePingPongAutoScroll._r2Cleanup) usePingPongAutoScroll._r2Cleanup()
+      if (timerId) clearInterval(timerId)
       document.removeEventListener('visibilitychange', resync)
       window.removeEventListener('focus', resync)
     }
-  }, [enabled, ref, speedPxPerSec, pauseMs, resetKey])
+  }, [enabled, ref, resetKey, speedPxPerSec, pauseMs, tickMs])
 }
 
 export default function ScreenDisplay() {
@@ -211,21 +258,13 @@ export default function ScreenDisplay() {
   const [lastUpdated, setLastUpdated] = React.useState(null)
   const [error, setError] = React.useState('')
 
-  // Dark mode state (persisted)
   const [darkMode, setDarkMode] = React.useState(false)
-
-  // Fullscreen state
   const [isFullscreen, setIsFullscreen] = React.useState(false)
 
-  // Scroll refs for auto-scrolling tables
   const signedInScrollRef = React.useRef(null)
   const awaitingScrollRef = React.useRef(null)
 
-  // -----------------------------
-  // Global styles:
-  // - Hide nav in fullscreen
-  // - Hide scrollbars until hover (mouse near)
-  // -----------------------------
+  // Global styles: fullscreen nav hide + scrollbar hide-until-hover
   React.useEffect(() => {
     const styleId = 'screen-display-global-style'
     if (!document.getElementById(styleId)) {
@@ -237,17 +276,16 @@ export default function ScreenDisplay() {
         body.screen-display-fullscreen .app-navbar { display: none !important; }
         body.screen-display-fullscreen .navbar { display: none !important; }
 
-        /* Hide scrollbars until hover */
         .scrollbar-hide-until-hover {
-          scrollbar-width: none;       /* Firefox */
-          -ms-overflow-style: none;    /* IE/Edge legacy */
+          scrollbar-width: none;
+          -ms-overflow-style: none;
         }
         .scrollbar-hide-until-hover::-webkit-scrollbar {
           width: 0px;
           height: 0px;
         }
         .scrollbar-hide-until-hover:hover {
-          scrollbar-width: thin;       /* Firefox */
+          scrollbar-width: thin;
         }
         .scrollbar-hide-until-hover:hover::-webkit-scrollbar {
           width: 10px;
@@ -258,14 +296,14 @@ export default function ScreenDisplay() {
           border-radius: 999px;
         }
         .scrollbar-hide-until-hover:hover::-webkit-scrollbar-track {
-          background: rgba(15,23,42,0.08);
+          background: rgba(15,23,42,0.10);
         }
       `
       document.head.appendChild(style)
     }
   }, [])
 
-  // Keep body class in sync (fullscreen hides nav)
+  // body class for fullscreen
   React.useEffect(() => {
     try {
       document.body.classList.toggle('screen-display-fullscreen', isFullscreen)
@@ -274,7 +312,7 @@ export default function ScreenDisplay() {
     }
   }, [isFullscreen])
 
-  // Track fullscreen changes (ESC / user exit)
+  // fullscreen change tracking
   React.useEffect(() => {
     function onFsChange() {
       const fsEl =
@@ -284,12 +322,10 @@ export default function ScreenDisplay() {
         document.msFullscreenElement
       setIsFullscreen(!!fsEl)
     }
-
     document.addEventListener('fullscreenchange', onFsChange)
     document.addEventListener('webkitfullscreenchange', onFsChange)
     document.addEventListener('mozfullscreenchange', onFsChange)
     document.addEventListener('MSFullscreenChange', onFsChange)
-
     onFsChange()
     return () => {
       document.removeEventListener('fullscreenchange', onFsChange)
@@ -299,40 +335,29 @@ export default function ScreenDisplay() {
     }
   }, [])
 
-  async function enterFullscreen() {
-    setError('')
-    try {
-      const el = document.documentElement
-      if (el.requestFullscreen) await el.requestFullscreen()
-      else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen()
-      else if (el.mozRequestFullScreen) await el.mozRequestFullScreen()
-      else if (el.msRequestFullscreen) await el.msRequestFullscreen()
-      else setError('Fullscreen is not supported on this browser.')
-    } catch (e) {
-      setError(e?.message || 'Failed to enter fullscreen.')
-    }
-  }
-
-  async function exitFullscreen() {
-    setError('')
-    try {
-      if (document.exitFullscreen) await document.exitFullscreen()
-      else if (document.webkitExitFullscreen) await document.webkitExitFullscreen()
-      else if (document.mozCancelFullScreen) await document.mozCancelFullScreen()
-      else if (document.msExitFullscreen) await document.msExitFullscreen()
-    } catch (e) {
-      setError(e?.message || 'Failed to exit fullscreen.')
-    }
-  }
-
   async function toggleFullscreen() {
-    const fsEl =
-      document.fullscreenElement ||
-      document.webkitFullscreenElement ||
-      document.mozFullScreenElement ||
-      document.msFullscreenElement
-    if (fsEl) await exitFullscreen()
-    else await enterFullscreen()
+    try {
+      const fsEl =
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+
+      if (fsEl) {
+        if (document.exitFullscreen) await document.exitFullscreen()
+        else if (document.webkitExitFullscreen) await document.webkitExitFullscreen()
+        else if (document.mozCancelFullScreen) await document.mozCancelFullScreen()
+        else if (document.msExitFullscreen) await document.msExitFullscreen()
+      } else {
+        const el = document.documentElement
+        if (el.requestFullscreen) await el.requestFullscreen()
+        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen()
+        else if (el.mozRequestFullScreen) await el.mozRequestFullScreen()
+        else if (el.msRequestFullscreen) await el.msRequestFullscreen()
+      }
+    } catch (e) {
+      setError(e?.message || 'Fullscreen failed.')
+    }
   }
 
   // Dark mode load/save
@@ -410,53 +435,53 @@ export default function ScreenDisplay() {
       const aAwait = a.signout_requested ? 1 : 0
       const bAwait = b.signout_requested ? 1 : 0
       if (aAwait !== bAwait) return bAwait - aAwait
-
       const at = a.signed_in_at ? new Date(a.signed_in_at).getTime() : 0
       const bt = b.signed_in_at ? new Date(b.signed_in_at).getTime() : 0
       return bt - at
     })
   }, [items])
 
-  // -----------------------------
-  // Compact sizing + scroll thresholds
-  // -----------------------------
+  // --- thresholds / sizing ---
   const SIGNED_IN_VISIBLE_ROWS = 5
   const AWAITING_VISIBLE_ROWS = 2
-
-  // Compact row/header sizes (reduced "fat")
   const ROW_PX = 44
   const HEAD_PX = 34
-
   const signedInMaxHeight = HEAD_PX + SIGNED_IN_VISIBLE_ROWS * ROW_PX
   const awaitingMaxHeight = HEAD_PX + AWAITING_VISIBLE_ROWS * ROW_PX
 
-  const shouldAutoScrollSignedIn = onSite.length > SIGNED_IN_VISIBLE_ROWS
-  const shouldAutoScrollAwaiting = awaiting.length > AWAITING_VISIBLE_ROWS
+  const lockSignedIn = onSite.length > SIGNED_IN_VISIBLE_ROWS
+  const lockAwaiting = awaiting.length > AWAITING_VISIBLE_ROWS
 
-  // ✅ Auto-scroll: down/up with pauses at top & bottom
-  // resetKey uses lastUpdated to force a clean restart after data refresh
+  // overflow detection (this is what makes it “live” and not dependent on repaint)
+  const signedInOverflowing = useIsOverflowing(signedInScrollRef, `${onSite.length}-${lastUpdated || 0}`)
+  const awaitingOverflowing = useIsOverflowing(awaitingScrollRef, `${awaiting.length}-${lastUpdated || 0}`)
+
+  // final enable conditions: >N AND actually overflowed
+  const enableSignedInAutoScroll = lockSignedIn && signedInOverflowing
+  const enableAwaitingAutoScroll = lockAwaiting && awaitingOverflowing
+
+  // auto scroll (ping-pong)
   usePingPongAutoScroll({
     ref: signedInScrollRef,
-    enabled: shouldAutoScrollSignedIn,
-    speedPxPerSec: 18,
-    pauseMs: 1200,
-    resetKey: `${onSite.length}-${lastUpdated || 0}`,
+    enabled: enableSignedInAutoScroll,
+    resetKey: `${enableSignedInAutoScroll}-${onSite.length}-${lastUpdated || 0}`,
+    speedPxPerSec: 16,
+    pauseMs: 1400,
+    tickMs: 33,
   })
 
   usePingPongAutoScroll({
     ref: awaitingScrollRef,
-    enabled: shouldAutoScrollAwaiting,
-    speedPxPerSec: 18,
-    pauseMs: 1200,
-    resetKey: `${awaiting.length}-${lastUpdated || 0}`,
+    enabled: enableAwaitingAutoScroll,
+    resetKey: `${enableAwaitingAutoScroll}-${awaiting.length}-${lastUpdated || 0}`,
+    speedPxPerSec: 16,
+    pauseMs: 1400,
+    tickMs: 33,
   })
 
   // Counts
   const counts = {}
-  STANDARD_DB_AREAS.forEach((a) => {
-    counts[a] = 0
-  })
-
+  STANDARD_DB_AREAS.forEach((a) => (counts[a] = 0))
   let otherCount = 0
   onSite.forEach((i) => {
     const areas = Array.isArray(i.areas) ? i.areas : []
@@ -473,10 +498,8 @@ export default function ScreenDisplay() {
   }
 
   function CounterTile({ label, value }) {
-    const tileCls =
-      'px-2.5 py-1.5 rounded-lg border shadow-sm flex items-center justify-between border-[#0b3a5a] bg-[#0b3a5a] text-white'
     return (
-      <div className={tileCls}>
+      <div className="px-2.5 py-1.5 rounded-lg border shadow-sm flex items-center justify-between border-[#0b3a5a] bg-[#0b3a5a] text-white">
         <div className="text-[10px] font-semibold truncate opacity-90">{label}</div>
         <div className="text-base font-bold tabular-nums">{value}</div>
       </div>
@@ -488,7 +511,6 @@ export default function ScreenDisplay() {
   const cardBase = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
   const theadBase = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'
 
-  // Deeper + brighter highlights
   const awaitingRowBg = darkMode ? 'bg-emerald-800/55' : 'bg-emerald-200/90'
   const awaitingTextMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
   const awaitingTextSub = darkMode ? 'text-emerald-100/95' : 'text-emerald-900'
@@ -497,7 +519,6 @@ export default function ScreenDisplay() {
   const signoutTextMain = darkMode ? 'text-rose-50' : 'text-rose-950'
   const signoutTextSub = darkMode ? 'text-rose-100/95' : 'text-rose-900'
 
-  // Compact badge styles
   const signoutBadgeCls = darkMode
     ? 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-300/30 bg-rose-950/30 text-rose-50'
     : 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-300 bg-rose-100 text-rose-900'
@@ -571,7 +592,7 @@ export default function ScreenDisplay() {
         “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
       </p>
 
-      {/* Awaiting sign-in: auto-hide when empty; lock to 2 rows then auto-scroll */}
+      {/* Awaiting sign-in (hide when empty). Lock to 2 rows; auto-scroll when overflow + >2 */}
       {awaiting.length > 0 && (
         <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
           <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" />
@@ -579,8 +600,8 @@ export default function ScreenDisplay() {
           <div className="overflow-x-auto">
             <div
               ref={awaitingScrollRef}
-              className={`overflow-y-auto scrollbar-hide-until-hover`}
-              style={{ maxHeight: shouldAutoScrollAwaiting ? awaitingMaxHeight : 'none' }}
+              className="overflow-y-auto scrollbar-hide-until-hover"
+              style={{ maxHeight: lockAwaiting ? awaitingMaxHeight : 'none' }}
             >
               <table className="min-w-full">
                 <thead className="sticky top-0 z-10">
@@ -601,7 +622,7 @@ export default function ScreenDisplay() {
                           <span>
                             {i.first_name} {i.surname}
                           </span>
-                          <span className={awaitingBadgeCls} aria-label="Awaiting sign-in" title="Awaiting sign-in">
+                          <span className={awaitingBadgeCls} title="Awaiting sign-in">
                             ⏳ <span>Awaiting sign-in</span>
                           </span>
                         </div>
@@ -617,15 +638,15 @@ export default function ScreenDisplay() {
         </div>
       )}
 
-      {/* Signed-in: lock to 5 rows then auto-scroll */}
+      {/* Signed-in contractors. Lock to 5 rows; auto-scroll when overflow + >5 */}
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
         <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" />
 
         <div className="overflow-x-auto">
           <div
             ref={signedInScrollRef}
-            className={`overflow-y-auto scrollbar-hide-until-hover`}
-            style={{ maxHeight: shouldAutoScrollSignedIn ? signedInMaxHeight : 'none' }}
+            className="overflow-y-auto scrollbar-hide-until-hover"
+            style={{ maxHeight: lockSignedIn ? signedInMaxHeight : 'none' }}
           >
             <table className="min-w-full">
               <thead className="sticky top-0 z-10">
@@ -637,7 +658,6 @@ export default function ScreenDisplay() {
                   <th className="px-3 py-1.5">Signed in by</th>
                 </tr>
               </thead>
-
               <tbody>
                 {onSite.length === 0 && (
                   <tr>
@@ -663,9 +683,8 @@ export default function ScreenDisplay() {
                           <span>
                             {i.first_name} {i.surname}
                           </span>
-
                           {awaitingSignOut && (
-                            <span className={signoutBadgeCls} aria-label="Awaiting sign-out" title="Awaiting sign-out">
+                            <span className={signoutBadgeCls} title="Awaiting sign-out">
                               ⏳ <span>Awaiting sign-out</span>
                             </span>
                           )}
