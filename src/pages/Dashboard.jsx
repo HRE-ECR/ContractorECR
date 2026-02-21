@@ -46,7 +46,6 @@ function isOtherArea(a) {
   const s = String(a).trim()
   if (!s) return false
   if (s.toLowerCase().startsWith('other:')) return true
-  // not one of our standard DB entries AND not one of our short mapped entries
   return !STANDARD_DB_AREAS.includes(s) && !Object.prototype.hasOwnProperty.call(AREA_SHORT_MAP, s)
 }
 
@@ -126,12 +125,41 @@ function downloadCsv(filename, rows) {
 }
 
 // -----------------------------
+// JWT role helper (NO profiles query -> avoids Zscaler)
+// -----------------------------
+async function getAppRoleFromAuth() {
+  // Primary: getSession()
+  try {
+    const { data } = await supabase.auth.getSession()
+    const role = data?.session?.user?.app_metadata?.app_role
+    if (role) return role
+  } catch {
+    // ignore
+  }
+
+  // Fallback: localStorage auth token (no network)
+  try {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
+    if (!key) return null
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const role =
+      parsed?.currentSession?.user?.app_metadata?.app_role ||
+      parsed?.currentSession?.user?.user_metadata?.app_role ||
+      null
+    return role
+  } catch {
+    return null
+  }
+}
+
+// -----------------------------
 // Summary (Counters)
 // -----------------------------
 function Summary({ items }) {
   const onSite = items.filter((i) => i.status !== 'signed_out' && !i.signed_out_at)
 
-  // Count contractors per area (contractor counted for each area they selected)
   const counts = {}
   SHORT_ORDER.forEach((k) => {
     if (k !== 'Other') counts[k] = 0
@@ -152,7 +180,6 @@ function Summary({ items }) {
       }
     })
 
-    // Other is contractor-level count (not per-area)
     if (hasOther) otherCount += 1
   })
 
@@ -167,7 +194,6 @@ function Summary({ items }) {
     )
   }
 
-  // Hide zero counters except Total
   const tiles = []
   tiles.push(tile('Total', onSite.length))
 
@@ -210,10 +236,7 @@ function AwaitingRow({ item, onConfirm }) {
         />
       </td>
       <td className="px-2 py-2 whitespace-nowrap">
-        <button
-          onClick={() => onConfirm(item.id, fob)}
-          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-        >
+        <button onClick={() => onConfirm(item.id, fob)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
           Confirm sign-in
         </button>
       </td>
@@ -234,18 +257,11 @@ export default function Dashboard() {
   // Signed-out display controls (per your request)
   const [signedOutExpanded, setSignedOutExpanded] = React.useState(false) // false = last 12 hours + 5, true = last 4 days + 30
 
-  // --- fob logic helpers
   function hasFobIssued(item) {
     const v = (item?.fob_number || '').toString().trim()
     return v.length > 0
   }
 
-  // Sign-out rule:
-  // - Teamleader: must have signout_requested = true
-  // - if fob issued => must have fob_returned = true
-  // - Admin override kept conservative:
-  //   - If fob issued => require fob_returned true
-  //   - If no fob => require signout_requested true
   function canConfirmSignOut(item) {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
@@ -253,7 +269,6 @@ export default function Dashboard() {
       if (fobIssued) return !!item.fob_returned
       return !!item.signout_requested
     }
-    // teamleader
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -273,19 +288,15 @@ export default function Dashboard() {
   async function load() {
     setError('')
 
-    // Determine admin (using profiles table)
-    const { data: userData } = await supabase.auth.getUser()
-    const uid = userData?.user?.id
-    let admin = false
+    // ✅ NO profiles query here (prevents Zscaler block)
+    const role = await getAppRoleFromAuth()
+    setIsAdmin(role === 'admin')
 
-    if (uid) {
-      const { data: prof, error: profErr } = await supabase.from('profiles').select('role').eq('id', uid).single()
-      if (profErr) {
-        // Don't hard-fail the dashboard for profile lookup errors; show message
-        setError(profErr.message)
-      }
-      admin = prof?.role === 'admin'
-      setIsAdmin(admin)
+    if (!role) {
+      // Only a soft warning; data still loads.
+      setError(
+        'Role not found in auth token. If this persists, log out and log in again (token refresh needed after hook/role changes).'
+      )
     }
 
     const { data, error: listErr } = await supabase
@@ -311,7 +322,7 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime Option 1: refresh when contractors changes
+  // Realtime: refresh on contractors changes
   React.useEffect(() => {
     let debounceTimer = null
     const channel = supabase
@@ -340,7 +351,6 @@ export default function Dashboard() {
     const raw = (fob || '').toString().trim()
     let finalFob = raw
 
-    // If empty fob, confirm no fob issued
     if (!finalFob) {
       const ok = confirm('No fob number entered. Confirm that no fob is required or being issued?')
       if (!ok) return
@@ -351,15 +361,17 @@ export default function Dashboard() {
     const uid = userData?.user?.id || null
     const email = userData?.user?.email || null
 
-    const updatePayload = {
-      status: 'confirmed',
-      sign_in_confirmed_at: new Date().toISOString(),
-      sign_in_confirmed_by: uid,
-      sign_in_confirmed_by_email: email,
-      fob_number: finalFob ? finalFob : null, // null = "no fob issued"
-    }
+    const { error } = await supabase
+      .from('contractors')
+      .update({
+        status: 'confirmed',
+        sign_in_confirmed_at: new Date().toISOString(),
+        sign_in_confirmed_by: uid,
+        sign_in_confirmed_by_email: email,
+        fob_number: finalFob ? finalFob : null,
+      })
+      .eq('id', itemId)
 
-    const { error } = await supabase.from('contractors').update(updatePayload).eq('id', itemId)
     if (error) alert(error.message)
     else load()
   }
@@ -391,10 +403,9 @@ export default function Dashboard() {
 
   async function setFobReturned(itemId, value) {
     const item = items.find((x) => x.id === itemId)
-    if (item && !hasFobIssued(item)) return // no fob issued
+    if (item && !hasFobIssued(item)) return
 
     const prevItems = items
-    // optimistic UI
     setItems((curr) => curr.map((i) => (i.id === itemId ? { ...i, fob_returned: value } : i)))
 
     const { error } = await supabase.from('contractors').update({ fob_returned: value }).eq('id', itemId)
@@ -456,7 +467,7 @@ export default function Dashboard() {
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
 
-  // Signed-out filtering per your rules:
+  // Signed-out filtering (12h default, 4 days expanded)
   const now = Date.now()
   const cutoffMs = signedOutExpanded ? 4 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000
   const cutoff = now - cutoffMs
@@ -473,17 +484,11 @@ export default function Dashboard() {
       <h2 className="text-xl font-bold mb-2">Contractor/Visitor details</h2>
 
       <div className="flex flex-wrap gap-2 items-center mb-3">
-        <button
-          onClick={handleRefresh}
-          className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
-        >
+        <button onClick={handleRefresh} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
 
-        <button
-          onClick={exportAllTables}
-          className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300"
-        >
+        <button onClick={exportAllTables} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
           Export all tables (CSV)
         </button>
       </div>
@@ -492,7 +497,6 @@ export default function Dashboard() {
 
       <Summary items={items} />
 
-      {/* Awaiting confirmation */}
       <h3 className="text-lg font-semibold mt-4 mb-2">Awaiting confirmation</h3>
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
@@ -522,7 +526,6 @@ export default function Dashboard() {
         </table>
       </div>
 
-      {/* On site */}
       <h3 className="text-lg font-semibold mt-6 mb-2">Signed in contractors/visitors</h3>
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
@@ -587,7 +590,9 @@ export default function Dashboard() {
                       disabled={!canSignOut}
                       title={!canSignOut ? reason : 'Confirm sign-out'}
                       className={`px-3 py-1 rounded whitespace-nowrap text-sm ${
-                        canSignOut ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                        canSignOut
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'bg-slate-200 text-slate-500 cursor-not-allowed'
                       }`}
                       style={{ fontSize: '0.80rem' }}
                     >
@@ -597,10 +602,7 @@ export default function Dashboard() {
 
                   {isAdmin && (
                     <td className="px-2 py-2 whitespace-nowrap">
-                      <button
-                        onClick={() => remove(i.id)}
-                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
-                      >
+                      <button onClick={() => remove(i.id)} className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded">
                         Delete
                       </button>
                     </td>
@@ -612,26 +614,20 @@ export default function Dashboard() {
         </table>
       </div>
 
-      {/* Signed out */}
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <h3 className="text-lg font-semibold">
-          Signed out (last {signedOutExpanded ? 30 : 5}{signedOutExpanded ? ', last 4 days' : ', last 12 hours'})
+          Signed out (last {signedOutExpanded ? 30 : 5}
+          {signedOutExpanded ? ', last 4 days' : ', last 12 hours'})
         </h3>
 
         {!signedOutExpanded && signedOutAll.length > 5 && (
-          <button
-            onClick={() => setSignedOutExpanded(true)}
-            className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
-          >
+          <button onClick={() => setSignedOutExpanded(true)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
             Show more
           </button>
         )}
 
         {signedOutExpanded && (
-          <button
-            onClick={() => setSignedOutExpanded(false)}
-            className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300"
-          >
+          <button onClick={() => setSignedOutExpanded(false)} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
             Show less
           </button>
         )}
@@ -682,9 +678,7 @@ export default function Dashboard() {
         </table>
       </div>
 
-      <div className="mt-3 text-xs text-slate-600">
-        Signed-out records are kept for up to 30 days and then automatically removed.
-      </div>
+      <div className="mt-3 text-xs text-slate-600">Signed-out records are kept for up to 30 days and then automatically removed.</div>
     </div>
   )
 }
