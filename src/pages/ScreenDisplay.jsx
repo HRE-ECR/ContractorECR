@@ -41,9 +41,7 @@ function extractOtherText(a) {
   const s = String(a).trim()
   if (!s) return ''
   const lower = s.toLowerCase()
-  if (lower.startsWith('other:')) {
-    return s.slice(s.indexOf(':') + 1).trim()
-  }
+  if (lower.startsWith('other:')) return s.slice(s.indexOf(':') + 1).trim()
   if (isOtherArea(s)) return s
   return ''
 }
@@ -306,18 +304,25 @@ export default function ScreenDisplay() {
 
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
 
-  // Move awaiting sign-out to top (then newest signed-in first)
+  // ✅ Awaiting sign-out at top (then newest signed-in first)
   const onSite = React.useMemo(() => {
     const list = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
     return list.slice().sort((a, b) => {
       const aAwait = a.signout_requested ? 1 : 0
       const bAwait = b.signout_requested ? 1 : 0
       if (aAwait !== bAwait) return bAwait - aAwait
+
       const at = a.signed_in_at ? new Date(a.signed_in_at).getTime() : 0
       const bt = b.signed_in_at ? new Date(b.signed_in_at).getTime() : 0
       return bt - at
     })
   }, [items])
+
+  // ✅ Signed-in table scroll sizing (5 rows visible)
+  const SIGNED_IN_VISIBLE_ROWS = 5
+  const SIGNED_IN_ROW_PX = 52     // approx row height with py-3
+  const SIGNED_IN_HEAD_PX = 44    // approx header height
+  const signedInMaxHeight = SIGNED_IN_HEAD_PX + SIGNED_IN_VISIBLE_ROWS * SIGNED_IN_ROW_PX
 
   const counts = {}
   STANDARD_DB_AREAS.forEach((a) => {
@@ -438,13 +443,13 @@ export default function ScreenDisplay() {
         “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
       </p>
 
-      {/* ✅ AUTO-HIDE: Only show the awaiting sign-in table if there are items */}
+      {/* Auto-hide awaiting sign-in table when empty */}
       {awaiting.length > 0 && (
         <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
           <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
           <div className="overflow-x-auto">
             <table className="min-w-full">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
                   <th className="px-4 py-2">Name</th>
                   <th className="px-4 py-2">Company</th>
@@ -462,13 +467,11 @@ export default function ScreenDisplay() {
                         <span>
                           {i.first_name} {i.surname}
                         </span>
-
                         <span className={awaitingBadgeCls} aria-label="Awaiting sign-in" title="Awaiting sign-in">
                           ⏳ <span>Awaiting sign-in</span>
                         </span>
                       </div>
                     </td>
-
                     <td className={`px-4 py-3 ${awaitingTextSub}`}>{i.company}</td>
                     <td className={`px-4 py-3 ${awaitingTextSub}`}>{areasTextForTables(i.areas)}</td>
                   </tr>
@@ -479,64 +482,78 @@ export default function ScreenDisplay() {
         </div>
       )}
 
+      {/* Signed-in contractors (locked to 5 rows visible; scroll if more) */}
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
         <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" darkMode={darkMode} />
+
+        {/* Outer handles horizontal overflow, inner handles vertical scroll */}
         <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Company</th>
-                <th className="px-4 py-2">Areas</th>
-                <th className="px-4 py-2">Fob #</th>
-                <th className="px-4 py-2">Signed in by</th>
-              </tr>
-            </thead>
-            <tbody>
-              {onSite.length === 0 && (
-                <tr>
-                  <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} colSpan={5}>
-                    None
-                  </td>
+          <div
+            className="overflow-y-auto"
+            style={{
+              maxHeight: onSite.length > SIGNED_IN_VISIBLE_ROWS ? signedInMaxHeight : 'none',
+            }}
+          >
+            <table className="min-w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
+                  <th className="px-4 py-2">Name</th>
+                  <th className="px-4 py-2">Company</th>
+                  <th className="px-4 py-2">Areas</th>
+                  <th className="px-4 py-2">Fob #</th>
+                  <th className="px-4 py-2">Signed in by</th>
                 </tr>
-              )}
-              {onSite.map((i) => {
-                const awaitingSignOut = !!i.signout_requested
-                const rowBg = awaitingSignOut ? signoutRowBg : ''
-                const mainCls = awaitingSignOut ? signoutTextMain : darkMode ? 'text-slate-100' : 'text-slate-900'
-                const subCls = awaitingSignOut ? signoutTextSub : darkMode ? 'text-slate-200' : 'text-slate-700'
-
-                return (
-                  <tr key={i.id} className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-                    <td className={`px-4 py-3 font-semibold ${mainCls}`}>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span>
-                          {i.first_name} {i.surname}
-                        </span>
-
-                        {awaitingSignOut && (
-                          <span className={signoutBadgeCls} aria-label="Awaiting sign-out" title="Awaiting sign-out">
-                            ⏳ <span>Awaiting sign-out</span>
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
-                    <td className={`px-4 py-3 ${subCls}`}>{areasTextForTables(i.areas)}</td>
-
-                    <td className={`px-4 py-3 ${subCls}`}>
-                      {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
-                    </td>
-
-                    <td className={`px-4 py-3 ${subCls}`}>
-                      {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}
+              </thead>
+              <tbody>
+                {onSite.length === 0 && (
+                  <tr>
+                    <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} colSpan={5}>
+                      None
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                )}
+
+                {onSite.map((i) => {
+                  const awaitingSignOut = !!i.signout_requested
+                  const rowBg = awaitingSignOut ? signoutRowBg : ''
+                  const mainCls = awaitingSignOut ? signoutTextMain : darkMode ? 'text-slate-100' : 'text-slate-900'
+                  const subCls = awaitingSignOut ? signoutTextSub : darkMode ? 'text-slate-200' : 'text-slate-700'
+
+                  return (
+                    <tr
+                      key={i.id}
+                      className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
+                    >
+                      <td className={`px-4 py-3 font-semibold ${mainCls}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>
+                            {i.first_name} {i.surname}
+                          </span>
+
+                          {awaitingSignOut && (
+                            <span className={signoutBadgeCls} aria-label="Awaiting sign-out" title="Awaiting sign-out">
+                              ⏳ <span>Awaiting sign-out</span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
+                      <td className={`px-4 py-3 ${subCls}`}>{areasTextForTables(i.areas)}</td>
+
+                      <td className={`px-4 py-3 ${subCls}`}>
+                        {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
+                      </td>
+
+                      <td className={`px-4 py-3 ${subCls}`}>
+                        {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
