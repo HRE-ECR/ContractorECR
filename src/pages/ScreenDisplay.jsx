@@ -15,17 +15,7 @@ const AREA_SHORT_MAP = {
   '4-Clean': '4CL',
 }
 
-const STANDARD_DB_AREAS = [
-  'Maint-1',
-  'Maint-2',
-  'Insp-shed',
-  'Rep-Shed',
-  '1-Clean',
-  '2-Clean',
-  '3-Clean',
-  '4-Clean',
-]
-
+const STANDARD_DB_AREAS = ['Maint-1', 'Maint-2', 'Insp-shed', 'Rep-Shed', '1-Clean', '2-Clean', '3-Clean', '4-Clean']
 const SHORT_ORDER = ['M1', 'M2', 'Insp', 'RShed', '1CL', '2CL', '3CL', '4CL']
 
 function isOtherArea(a) {
@@ -79,9 +69,7 @@ function areasTextForTables(areas) {
 
 function hasAnyOther(areas) {
   const arr = Array.isArray(areas) ? areas : []
-  for (const a of arr) {
-    if (extractOtherText(a)) return true
-  }
+  for (const a of arr) if (extractOtherText(a)) return true
   return false
 }
 
@@ -123,14 +111,14 @@ function formatStaffEmail(email) {
 // -----------------------------
 function SectionHeader({ title, count, tone = 'slate', darkMode }) {
   const tones = {
-    slate: darkMode ? 'bg-slate-900 text-white' : 'bg-slate-900 text-white',
-    blue: darkMode ? 'bg-[#0b3a5a] text-white' : 'bg-[#0b3a5a] text-white',
-    green: darkMode ? 'bg-emerald-700 text-white' : 'bg-emerald-700 text-white',
+    slate: 'bg-slate-900 text-white',
+    blue: 'bg-[#0b3a5a] text-white',
+    green: 'bg-emerald-700 text-white',
   }
   const cls = tones[tone] || tones.slate
   return (
-    <div className={`px-4 py-2 font-semibold flex items-center justify-between ${cls}`}>
-      <div className="text-sm tracking-wide">
+    <div className={`px-3 py-1.5 font-semibold flex items-center justify-between ${cls}`}>
+      <div className="text-[12px] tracking-wide">
         {title}
         {typeof count === 'number' ? ` (${count})` : ''}
       </div>
@@ -150,8 +138,9 @@ export default function ScreenDisplay() {
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = React.useState(false)
 
-  // Ref for the signed-in table scroll container (used for auto-scroll)
+  // Scroll refs for auto-scrolling tables
   const signedInScrollRef = React.useRef(null)
+  const awaitingScrollRef = React.useRef(null)
 
   // -----------------------------
   // Inject a tiny global style for hiding nav in fullscreen
@@ -180,7 +169,7 @@ export default function ScreenDisplay() {
     }
   }, [isFullscreen])
 
-  // Track fullscreen changes (ESC key / user exit)
+  // Track fullscreen changes (ESC / user exit)
   React.useEffect(() => {
     function onFsChange() {
       const fsEl =
@@ -241,6 +230,7 @@ export default function ScreenDisplay() {
     else await enterFullscreen()
   }
 
+  // Dark mode load/save
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem('screenDisplayDarkMode')
@@ -287,6 +277,7 @@ export default function ScreenDisplay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Realtime
   React.useEffect(() => {
     let debounceTimer = null
     const channel = supabase
@@ -307,7 +298,7 @@ export default function ScreenDisplay() {
 
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
 
-  // ✅ Awaiting sign-out at top (then newest signed-in first)
+  // Awaiting sign-out at top (then newest signed-in first)
   const onSite = React.useMemo(() => {
     const list = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
     return list.slice().sort((a, b) => {
@@ -321,76 +312,90 @@ export default function ScreenDisplay() {
     })
   }, [items])
 
-  // ✅ Signed-in table visible rows + auto-scroll
+  // -----------------------------
+  // Compact sizing + scroll thresholds
+  // -----------------------------
   const SIGNED_IN_VISIBLE_ROWS = 5
-  const SIGNED_IN_ROW_PX = 52 // approx row height with py-3
-  const SIGNED_IN_HEAD_PX = 44 // approx header height
-  const signedInMaxHeight = SIGNED_IN_HEAD_PX + SIGNED_IN_VISIBLE_ROWS * SIGNED_IN_ROW_PX
+  const AWAITING_VISIBLE_ROWS = 2
+
+  // Compact row/header sizes (reduced "fat")
+  const ROW_PX = 44
+  const HEAD_PX = 34
+
+  const signedInMaxHeight = HEAD_PX + SIGNED_IN_VISIBLE_ROWS * ROW_PX
+  const awaitingMaxHeight = HEAD_PX + AWAITING_VISIBLE_ROWS * ROW_PX
+
   const shouldAutoScrollSignedIn = onSite.length > SIGNED_IN_VISIBLE_ROWS
+  const shouldAutoScrollAwaiting = awaiting.length > AWAITING_VISIBLE_ROWS
 
-  // ✅ Auto-scroll loop (only when > 5)
-  React.useEffect(() => {
-    if (!shouldAutoScrollSignedIn) return
+  // -----------------------------
+  // Auto scroll (ping-pong: down -> pause -> up -> pause)
+  // -----------------------------
+  function usePingPongAutoScroll(ref, enabled, key) {
+    React.useEffect(() => {
+      if (!enabled) return
+      const el = ref.current
+      if (!el) return
 
-    const el = signedInScrollRef.current
-    if (!el) return
+      // Ensure we start at top whenever data changes
+      el.scrollTop = 0
 
-    // If no vertical overflow, don't start auto-scroll
-    if (el.scrollHeight <= el.clientHeight + 1) return
+      // If no vertical overflow, do nothing
+      if (el.scrollHeight <= el.clientHeight + 1) return
 
-    let rafId = null
-    let last = performance.now()
+      let rafId = null
+      let last = performance.now()
+      let dir = 1 // 1 = down, -1 = up
+      let phase = 'scroll' // 'scroll' | 'pause'
+      let pauseUntil = 0
 
-    // Phases: scroll -> pauseBottom -> pauseTop -> scroll...
-    let phase = 'scroll'
-    let pauseUntil = 0
+      const SPEED_PX_PER_SEC = 18
+      const PAUSE_MS = 1200
 
-    const SPEED_PX_PER_SEC = 22 // adjust if you want faster/slower
-    const PAUSE_BOTTOM_MS = 1400
-    const PAUSE_TOP_MS = 600
+      const step = (now) => {
+        const current = ref.current
+        if (!current) return
 
-    const step = (now) => {
-      // If component unmounted or ref changed, stop safely
-      if (!signedInScrollRef.current) return
+        const dt = Math.max(0, (now - last) / 1000)
+        last = now
 
-      const dt = Math.max(0, (now - last) / 1000)
-      last = now
+        const maxScroll = Math.max(0, current.scrollHeight - current.clientHeight)
 
-      if (phase === 'pauseBottom' || phase === 'pauseTop') {
-        if (now >= pauseUntil) {
-          if (phase === 'pauseBottom') {
-            // jump to top, then pause shortly at top
-            el.scrollTop = 0
-            phase = 'pauseTop'
-            pauseUntil = now + PAUSE_TOP_MS
-          } else {
-            // resume scrolling
-            phase = 'scroll'
-          }
+        if (phase === 'pause') {
+          if (now >= pauseUntil) phase = 'scroll'
+          rafId = requestAnimationFrame(step)
+          return
         }
+
+        // phase === 'scroll'
+        current.scrollTop = Math.min(maxScroll, Math.max(0, current.scrollTop + dir * SPEED_PX_PER_SEC * dt))
+
+        const atTop = current.scrollTop <= 0.5
+        const atBottom = current.scrollTop >= maxScroll - 0.5
+
+        if ((dir === 1 && atBottom) || (dir === -1 && atTop)) {
+          // Pause at edge, then reverse direction
+          phase = 'pause'
+          pauseUntil = now + PAUSE_MS
+          dir *= -1
+        }
+
         rafId = requestAnimationFrame(step)
-        return
-      }
-
-      // phase === 'scroll'
-      el.scrollTop += SPEED_PX_PER_SEC * dt
-
-      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
-      if (atBottom) {
-        phase = 'pauseBottom'
-        pauseUntil = now + PAUSE_BOTTOM_MS
       }
 
       rafId = requestAnimationFrame(step)
-    }
+      return () => {
+        if (rafId) cancelAnimationFrame(rafId)
+      }
+      // key forces restart when dataset changes meaningfully
+    }, [enabled, ref, key])
+  }
 
-    rafId = requestAnimationFrame(step)
+  // Restart scroll loops when row counts change (keeps behaviour stable)
+  usePingPongAutoScroll(signedInScrollRef, shouldAutoScrollSignedIn, onSite.length)
+  usePingPongAutoScroll(awaitingScrollRef, shouldAutoScrollAwaiting, awaiting.length)
 
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId)
-    }
-  }, [shouldAutoScrollSignedIn, onSite.length])
-
+  // Counts
   const counts = {}
   STANDARD_DB_AREAS.forEach((a) => {
     counts[a] = 0
@@ -413,11 +418,11 @@ export default function ScreenDisplay() {
 
   function CounterTile({ label, value }) {
     const tileCls =
-      'px-3 py-2 rounded-lg border shadow-sm flex items-center justify-between border-[#0b3a5a] bg-[#0b3a5a] text-white'
+      'px-2.5 py-1.5 rounded-lg border shadow-sm flex items-center justify-between border-[#0b3a5a] bg-[#0b3a5a] text-white'
     return (
       <div className={tileCls}>
-        <div className="text-[11px] font-semibold truncate opacity-90">{label}</div>
-        <div className="text-lg font-bold tabular-nums">{value}</div>
+        <div className="text-[10px] font-semibold truncate opacity-90">{label}</div>
+        <div className="text-base font-bold tabular-nums">{value}</div>
       </div>
     )
   }
@@ -427,7 +432,7 @@ export default function ScreenDisplay() {
   const cardBase = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
   const theadBase = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'
 
-  // Deeper + brighter highlights (green + red)
+  // Deeper + brighter highlights
   const awaitingRowBg = darkMode ? 'bg-emerald-800/55' : 'bg-emerald-200/90'
   const awaitingTextMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
   const awaitingTextSub = darkMode ? 'text-emerald-100/95' : 'text-emerald-900'
@@ -436,16 +441,16 @@ export default function ScreenDisplay() {
   const signoutTextMain = darkMode ? 'text-rose-50' : 'text-rose-950'
   const signoutTextSub = darkMode ? 'text-rose-100/95' : 'text-rose-900'
 
-  // Badge styles
+  // Compact badge styles (same pill shape, less padding)
   const signoutBadgeCls = darkMode
-    ? 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300/30 bg-rose-950/30 text-rose-50'
-    : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300 bg-rose-100 text-rose-900'
+    ? 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-300/30 bg-rose-950/30 text-rose-50'
+    : 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-rose-300 bg-rose-100 text-rose-900'
 
   const awaitingBadgeCls = darkMode
-    ? 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-950/30 text-emerald-50'
-    : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-300 bg-emerald-100 text-emerald-900'
+    ? 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-300/30 bg-emerald-950/30 text-emerald-50'
+    : 'inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-300 bg-emerald-100 text-emerald-900'
 
-  if (loading) return <div className="p-6 text-xl">Loading screen display…</div>
+  if (loading) return <div className="p-4 text-lg">Loading screen display…</div>
 
   const areaCounterTiles = STANDARD_DB_AREAS
     .map((a) => ({ db: a, label: counterLabel(a), value: counts[a] || 0 }))
@@ -455,15 +460,15 @@ export default function ScreenDisplay() {
   const fullscreenShell = isFullscreen ? 'fixed inset-0 z-50 overflow-auto rounded-none' : 'rounded-xl'
 
   return (
-    <section className={`space-y-5 p-3 ${fullscreenShell} ${pageBg}`}>
-      <div className="flex items-start justify-between gap-4">
+    <section className={`space-y-4 p-2 ${fullscreenShell} ${pageBg}`}>
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Screen display</h1>
-          <p className={mutedText}>
+          <h1 className="text-2xl font-bold">Screen display</h1>
+          <p className={`text-sm ${mutedText}`}>
             Live view — updates automatically
             {lastUpdated ? ` • Last updated: ${formatDayMonthTime(lastUpdated)}` : ''}
           </p>
-          {error && <p className="text-red-400 mt-2">{error}</p>}
+          {error && <p className="text-red-400 mt-1 text-sm">{error}</p>}
         </div>
 
         <div className="flex items-center gap-2">
@@ -472,8 +477,8 @@ export default function ScreenDisplay() {
             onClick={() => setDarkMode((v) => !v)}
             className={
               darkMode
-                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+                ? 'px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                : 'px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
             }
             aria-label="Toggle dark mode"
             title="Toggle dark mode"
@@ -486,8 +491,8 @@ export default function ScreenDisplay() {
             onClick={toggleFullscreen}
             className={
               darkMode
-                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+                ? 'px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                : 'px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
             }
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
@@ -506,77 +511,81 @@ export default function ScreenDisplay() {
         {otherCount > 0 && <CounterTile label="Other" value={otherCount} />}
       </div>
 
-      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+      <p className={`text-[11px] ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
       </p>
 
-      {/* Auto-hide awaiting sign-in table when empty */}
+      {/* Awaiting sign-in: auto-hide when empty; lock to 2 rows then ping-pong scroll */}
       {awaiting.length > 0 && (
         <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
           <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
+
           <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="sticky top-0 z-10">
-                <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
-                  <th className="px-4 py-2">Name</th>
-                  <th className="px-4 py-2">Company</th>
-                  <th className="px-4 py-2">Areas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {awaiting.map((i) => (
-                  <tr
-                    key={i.id}
-                    className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
-                  >
-                    <td className={`px-4 py-3 font-semibold ${awaitingTextMain}`}>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span>
-                          {i.first_name} {i.surname}
-                        </span>
-                        <span className={awaitingBadgeCls} aria-label="Awaiting sign-in" title="Awaiting sign-in">
-                          ⏳ <span>Awaiting sign-in</span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className={`px-4 py-3 ${awaitingTextSub}`}>{i.company}</td>
-                    <td className={`px-4 py-3 ${awaitingTextSub}`}>{areasTextForTables(i.areas)}</td>
+            <div
+              ref={awaitingScrollRef}
+              className="overflow-y-auto"
+              style={{ maxHeight: shouldAutoScrollAwaiting ? awaitingMaxHeight : 'none' }}
+            >
+              <table className="min-w-full">
+                <thead className="sticky top-0 z-10">
+                  <tr className={`text-left text-[11px] uppercase tracking-wider ${theadBase}`}>
+                    <th className="px-3 py-1.5">Name</th>
+                    <th className="px-3 py-1.5">Company</th>
+                    <th className="px-3 py-1.5">Areas</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {awaiting.map((i) => (
+                    <tr
+                      key={i.id}
+                      className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
+                    >
+                      <td className={`px-3 py-2 font-semibold ${awaitingTextMain}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>
+                            {i.first_name} {i.surname}
+                          </span>
+                          <span className={awaitingBadgeCls} aria-label="Awaiting sign-in" title="Awaiting sign-in">
+                            ⏳ <span>Awaiting sign-in</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td className={`px-3 py-2 ${awaitingTextSub}`}>{i.company}</td>
+                      <td className={`px-3 py-2 ${awaitingTextSub}`}>{areasTextForTables(i.areas)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Signed-in contractors (locked to 5 rows visible; auto-scroll if more) */}
+      {/* Signed-in: lock to 5 rows then ping-pong auto scroll */}
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
         <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" darkMode={darkMode} />
 
-        {/* Outer handles horizontal overflow */}
         <div className="overflow-x-auto">
-          {/* Inner handles vertical scroll + auto-scroll */}
           <div
             ref={signedInScrollRef}
             className="overflow-y-auto"
-            style={{
-              maxHeight: shouldAutoScrollSignedIn ? signedInMaxHeight : 'none',
-            }}
+            style={{ maxHeight: shouldAutoScrollSignedIn ? signedInMaxHeight : 'none' }}
           >
             <table className="min-w-full">
               <thead className="sticky top-0 z-10">
-                <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
-                  <th className="px-4 py-2">Name</th>
-                  <th className="px-4 py-2">Company</th>
-                  <th className="px-4 py-2">Areas</th>
-                  <th className="px-4 py-2">Fob #</th>
-                  <th className="px-4 py-2">Signed in by</th>
+                <tr className={`text-left text-[11px] uppercase tracking-wider ${theadBase}`}>
+                  <th className="px-3 py-1.5">Name</th>
+                  <th className="px-3 py-1.5">Company</th>
+                  <th className="px-3 py-1.5">Areas</th>
+                  <th className="px-3 py-1.5">Fob #</th>
+                  <th className="px-3 py-1.5">Signed in by</th>
                 </tr>
               </thead>
+
               <tbody>
                 {onSite.length === 0 && (
                   <tr>
-                    <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} colSpan={5}>
+                    <td className={`px-3 py-2 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} colSpan={5}>
                       None
                     </td>
                   </tr>
@@ -593,7 +602,7 @@ export default function ScreenDisplay() {
                       key={i.id}
                       className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
                     >
-                      <td className={`px-4 py-3 font-semibold ${mainCls}`}>
+                      <td className={`px-3 py-2 font-semibold ${mainCls}`}>
                         <div className="flex items-center gap-2 flex-wrap">
                           <span>
                             {i.first_name} {i.surname}
@@ -607,14 +616,14 @@ export default function ScreenDisplay() {
                         </div>
                       </td>
 
-                      <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
-                      <td className={`px-4 py-3 ${subCls}`}>{areasTextForTables(i.areas)}</td>
+                      <td className={`px-3 py-2 ${subCls}`}>{i.company}</td>
+                      <td className={`px-3 py-2 ${subCls}`}>{areasTextForTables(i.areas)}</td>
 
-                      <td className={`px-4 py-3 ${subCls}`}>
+                      <td className={`px-3 py-2 ${subCls}`}>
                         {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
                       </td>
 
-                      <td className={`px-4 py-3 ${subCls}`}>
+                      <td className={`px-3 py-2 ${subCls}`}>
                         {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}
                       </td>
                     </tr>
@@ -626,7 +635,7 @@ export default function ScreenDisplay() {
         </div>
       </div>
 
-      <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+      <p className={`text-[11px] ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
         This screen view is read-only. Use the Dashboard for confirmations and updates.
       </p>
     </section>
