@@ -154,7 +154,6 @@ export default function ScreenDisplay() {
 
   // -----------------------------
   // Inject a tiny global style for hiding nav in fullscreen
-  // (works even if NavBar is outside this component)
   // -----------------------------
   React.useEffect(() => {
     const styleId = 'screen-display-fullscreen-style'
@@ -188,7 +187,6 @@ export default function ScreenDisplay() {
         document.webkitFullscreenElement ||
         document.mozFullScreenElement ||
         document.msFullscreenElement
-
       setIsFullscreen(!!fsEl)
     }
 
@@ -197,9 +195,7 @@ export default function ScreenDisplay() {
     document.addEventListener('mozfullscreenchange', onFsChange)
     document.addEventListener('MSFullscreenChange', onFsChange)
 
-    // Initial sync
     onFsChange()
-
     return () => {
       document.removeEventListener('fullscreenchange', onFsChange)
       document.removeEventListener('webkitfullscreenchange', onFsChange)
@@ -240,7 +236,6 @@ export default function ScreenDisplay() {
       document.webkitFullscreenElement ||
       document.mozFullScreenElement ||
       document.msFullscreenElement
-
     if (fsEl) await exitFullscreen()
     else await enterFullscreen()
   }
@@ -311,14 +306,13 @@ export default function ScreenDisplay() {
 
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
 
-  // ✅ Move awaiting sign-out to top (then newest signed-in first)
+  // Move awaiting sign-out to top (then newest signed-in first)
   const onSite = React.useMemo(() => {
     const list = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
     return list.slice().sort((a, b) => {
       const aAwait = a.signout_requested ? 1 : 0
       const bAwait = b.signout_requested ? 1 : 0
       if (aAwait !== bAwait) return bAwait - aAwait
-
       const at = a.signed_in_at ? new Date(a.signed_in_at).getTime() : 0
       const bt = b.signed_in_at ? new Date(b.signed_in_at).getTime() : 0
       return bt - at
@@ -361,7 +355,7 @@ export default function ScreenDisplay() {
   const cardBase = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
   const theadBase = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'
 
-  // ✅ Deeper + brighter highlights (green + red) to stand out
+  // Deeper + brighter highlights (green + red)
   const awaitingRowBg = darkMode ? 'bg-emerald-800/55' : 'bg-emerald-200/90'
   const awaitingTextMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
   const awaitingTextSub = darkMode ? 'text-emerald-100/95' : 'text-emerald-900'
@@ -375,7 +369,6 @@ export default function ScreenDisplay() {
     ? 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300/30 bg-rose-950/30 text-rose-50'
     : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300 bg-rose-100 text-rose-900'
 
-  // ✅ NEW: Awaiting sign-in badge (same pill styling, themed emerald)
   const awaitingBadgeCls = darkMode
     ? 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-950/30 text-emerald-50'
     : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-300 bg-emerald-100 text-emerald-900'
@@ -387,7 +380,6 @@ export default function ScreenDisplay() {
     .filter((x) => x.value > 0)
     .sort((x, y) => SHORT_ORDER.indexOf(x.label) - SHORT_ORDER.indexOf(y.label))
 
-  // When fullscreen, make this section fill the viewport & sit above everything
   const fullscreenShell = isFullscreen ? 'fixed inset-0 z-50 overflow-auto rounded-none' : 'rounded-xl'
 
   return (
@@ -402,7 +394,6 @@ export default function ScreenDisplay() {
           {error && <p className="text-red-400 mt-2">{error}</p>}
         </div>
 
-        {/* Buttons: Dark/Light + Fullscreen */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -447,51 +438,46 @@ export default function ScreenDisplay() {
         “Other” counts contractors who selected any non-standard area (including entries like “Other: …”).
       </p>
 
-      <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
-        <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Company</th>
-                <th className="px-4 py-2">Areas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {awaiting.length === 0 && (
-                <tr>
-                  <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} colSpan={3}>
-                    None
-                  </td>
+      {/* ✅ AUTO-HIDE: Only show the awaiting sign-in table if there are items */}
+      {awaiting.length > 0 && (
+        <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
+          <SectionHeader title="Awaiting sign-in confirmation" count={awaiting.length} tone="green" darkMode={darkMode} />
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className={`text-left text-xs uppercase tracking-wider ${theadBase}`}>
+                  <th className="px-4 py-2">Name</th>
+                  <th className="px-4 py-2">Company</th>
+                  <th className="px-4 py-2">Areas</th>
                 </tr>
-              )}
-              {awaiting.map((i) => (
-                <tr
-                  key={i.id}
-                  className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
-                >
-                  <td className={`px-4 py-3 font-semibold ${awaitingTextMain}`}>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span>
-                        {i.first_name} {i.surname}
-                      </span>
+              </thead>
+              <tbody>
+                {awaiting.map((i) => (
+                  <tr
+                    key={i.id}
+                    className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
+                  >
+                    <td className={`px-4 py-3 font-semibold ${awaitingTextMain}`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>
+                          {i.first_name} {i.surname}
+                        </span>
 
-                      {/* ✅ NEW badge */}
-                      <span className={awaitingBadgeCls} aria-label="Awaiting sign-in" title="Awaiting sign-in">
-                        ⏳ <span>Awaiting sign-in</span>
-                      </span>
-                    </div>
-                  </td>
+                        <span className={awaitingBadgeCls} aria-label="Awaiting sign-in" title="Awaiting sign-in">
+                          ⏳ <span>Awaiting sign-in</span>
+                        </span>
+                      </div>
+                    </td>
 
-                  <td className={`px-4 py-3 ${awaitingTextSub}`}>{i.company}</td>
-                  <td className={`px-4 py-3 ${awaitingTextSub}`}>{areasTextForTables(i.areas)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <td className={`px-4 py-3 ${awaitingTextSub}`}>{i.company}</td>
+                    <td className={`px-4 py-3 ${awaitingTextSub}`}>{areasTextForTables(i.areas)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className={`border rounded-xl overflow-hidden ${cardBase}`}>
         <SectionHeader title="Signed in contractors" count={onSite.length} tone="blue" darkMode={darkMode} />
