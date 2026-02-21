@@ -146,13 +146,6 @@ function isOverflowing(el) {
   return el.scrollHeight > el.clientHeight + 4
 }
 
-function getBestScrollElement(sectionEl) {
-  // Prefer the section if it truly scrolls.
-  if (sectionEl && isOverflowing(sectionEl)) return sectionEl
-  // Fall back to the document scroller (common in some layouts).
-  return document.scrollingElement || document.documentElement
-}
-
 export default function ScreenDisplay() {
   const [items, setItems] = React.useState([])
   const [loading, setLoading] = React.useState(true)
@@ -168,7 +161,7 @@ export default function ScreenDisplay() {
   // ✅ TEMP: Auto-scroll toggle button (remove later)
   const [autoScrollEnabled, setAutoScrollEnabled] = React.useState(false)
 
-  // Optional tiny status (helps verify it’s working)
+  // Debug/status (helps confirm target + movement)
   const [scrollStatus, setScrollStatus] = React.useState('')
 
   // Scroll container ref
@@ -282,22 +275,21 @@ export default function ScreenDisplay() {
   }, [])
 
   // -----------------------------
-  // Auto scroll up/down (TEMP toggle)
-  // - Only runs if autoScrollEnabled = true
-  // - Starts after 5s of no user-intent input
-  // - Works in fullscreen by re-evaluating scroll element
+  // Auto scroll up/down (button-only control)
+  // - No input detection at all
+  // - Runs only when autoScrollEnabled = true AND overflow is true
+  // - Uses scrollTo() (more forceful than scrollTop +=)
+  // - Re-inits on fullscreen changes
   // -----------------------------
   React.useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+
     if (!autoScrollEnabled) {
       setScrollStatus('')
       return
     }
 
-    const sectionEl = scrollRef.current
-    const el = getBestScrollElement(sectionEl)
-    if (!el) return
-
-    // Respect reduced motion
     const prefersReduced =
       window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (prefersReduced) {
@@ -311,67 +303,63 @@ export default function ScreenDisplay() {
 
     const speedPxPerSec = 14
     const edgePauseMs = 1400
-    const inactivityMs = 5000
+    let pauseUntil = 0
 
-    let allowScrollAt = performance.now() + inactivityMs
-
-    const atBottom = () => el.scrollTop >= el.scrollHeight - el.clientHeight - 2
+    const maxScrollTop = () => Math.max(0, el.scrollHeight - el.clientHeight)
+    const atBottom = () => el.scrollTop >= maxScrollTop() - 1
     const atTop = () => el.scrollTop <= 1
-    const overflowNow = () => isOverflowing(el)
 
-    const noteUserIntent = () => {
-      allowScrollAt = performance.now() + inactivityMs
+    const updateStatus = () => {
+      const overflow = isOverflowing(el)
+      const max = maxScrollTop()
+      setScrollStatus(
+        `Auto-scroll ON • target: section • overflow: ${overflow ? 'yes' : 'no'} • pos: ${Math.round(el.scrollTop)}/${Math.round(max)}`
+      )
     }
 
-    // Only user-intent events (avoid mousemove jitter)
-    el.addEventListener('wheel', noteUserIntent, { passive: true })
-    el.addEventListener('touchstart', noteUserIntent, { passive: true })
-    el.addEventListener('mousedown', noteUserIntent, { passive: true })
-    el.addEventListener('pointerdown', noteUserIntent, { passive: true })
-    window.addEventListener('keydown', noteUserIntent)
+    // Keep status fresh
+    updateStatus()
 
-    // Observe size changes (fullscreen/layout)
+    // Watch size changes (fullscreen/layout) so maxScrollTop updates correctly
     let ro = null
     if (window.ResizeObserver) {
       ro = new ResizeObserver(() => {
-        lastT = performance.now()
+        updateStatus()
       })
       ro.observe(el)
     }
-
-    // Initial status (helps confirm target)
-    setScrollStatus(
-      `Auto-scroll ON • target: ${el === sectionEl ? 'section' : 'page'} • overflow: ${overflowNow() ? 'yes' : 'no'}`
-    )
 
     const step = (t) => {
       const dt = Math.min((t - lastT) / 1000, 0.06)
       lastT = t
 
-      // Only scroll if there is overflow (text off-screen)
-      if (!overflowNow()) {
-        // Keep status updated
-        setScrollStatus((prev) => (prev.includes('overflow: no') ? prev : prev.replace('overflow: yes', 'overflow: no')))
-        rafId = requestAnimationFrame(step)
-        return
-      } else {
-        setScrollStatus((prev) => (prev.includes('overflow: yes') ? prev : prev.replace('overflow: no', 'overflow: yes')))
-      }
-
-      // Wait for inactivity
-      if (t < allowScrollAt) {
+      // Only scroll if overflow
+      if (!isOverflowing(el)) {
+        updateStatus()
         rafId = requestAnimationFrame(step)
         return
       }
 
-      el.scrollTop += direction * speedPxPerSec * dt
+      if (t < pauseUntil) {
+        rafId = requestAnimationFrame(step)
+        return
+      }
+
+      const delta = direction * speedPxPerSec * dt
+      const next = Math.min(Math.max(el.scrollTop + delta, 0), maxScrollTop())
+
+      // Force scroll position (some environments ignore incremental scrollTop updates)
+      el.scrollTo({ top: next, behavior: 'auto' })
+
+      // Update status occasionally (not every frame heavy)
+      if (Math.random() < 0.08) updateStatus()
 
       if (direction > 0 && atBottom()) {
         direction = -1
-        allowScrollAt = t + edgePauseMs
+        pauseUntil = t + edgePauseMs
       } else if (direction < 0 && atTop()) {
         direction = 1
-        allowScrollAt = t + edgePauseMs
+        pauseUntil = t + edgePauseMs
       }
 
       rafId = requestAnimationFrame(step)
@@ -381,11 +369,6 @@ export default function ScreenDisplay() {
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
-      el.removeEventListener('wheel', noteUserIntent)
-      el.removeEventListener('touchstart', noteUserIntent)
-      el.removeEventListener('mousedown', noteUserIntent)
-      el.removeEventListener('pointerdown', noteUserIntent)
-      window.removeEventListener('keydown', noteUserIntent)
       if (ro) ro.disconnect()
     }
   }, [autoScrollEnabled, items.length, darkMode, isFullscreen])
@@ -461,7 +444,11 @@ export default function ScreenDisplay() {
             {lastUpdated ? ` • Last updated: ${formatDayMonthTime(lastUpdated)}` : ''}
           </p>
           {error && <p className="text-red-400 mt-2">{error}</p>}
-          {scrollStatus && <p className={`mt-1 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{scrollStatus}</p>}
+          {scrollStatus && (
+            <p className={`mt-1 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              {scrollStatus}
+            </p>
+          )}
         </div>
 
         {/* Buttons: Dark mode + Fullscreen + TEMP Auto-scroll */}
@@ -500,12 +487,12 @@ export default function ScreenDisplay() {
             onClick={() => setAutoScrollEnabled((v) => !v)}
             className={
               autoScrollEnabled
-                ? (darkMode
-                    ? 'px-3 py-2 rounded-lg border border-emerald-700 bg-emerald-900/40 hover:bg-emerald-900/55 text-emerald-100 text-sm'
-                    : 'px-3 py-2 rounded-lg border border-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-sm')
-                : (darkMode
-                    ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-                    : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm')
+                ? darkMode
+                  ? 'px-3 py-2 rounded-lg border border-emerald-700 bg-emerald-900/40 hover:bg-emerald-900/55 text-emerald-100 text-sm'
+                  : 'px-3 py-2 rounded-lg border border-emerald-600 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-sm'
+                : darkMode
+                  ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                  : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
             }
             aria-label={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
             title={autoScrollEnabled ? 'Disable auto-scroll' : 'Enable auto-scroll'}
