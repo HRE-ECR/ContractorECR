@@ -305,7 +305,20 @@ export default function ScreenDisplay() {
   }, [])
 
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
-  const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
+
+  // ✅ Move awaiting sign-out to top (then newest signed-in first)
+  const onSite = React.useMemo(() => {
+    const list = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
+    return list.slice().sort((a, b) => {
+      const aAwait = a.signout_requested ? 1 : 0
+      const bAwait = b.signout_requested ? 1 : 0
+      if (aAwait !== bAwait) return bAwait - aAwait
+
+      const at = a.signed_in_at ? new Date(a.signed_in_at).getTime() : 0
+      const bt = b.signed_in_at ? new Date(b.signed_in_at).getTime() : 0
+      return bt - at
+    })
+  }, [items])
 
   const counts = {}
   STANDARD_DB_AREAS.forEach((a) => {
@@ -343,14 +356,19 @@ export default function ScreenDisplay() {
   const cardBase = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
   const theadBase = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'
 
-  // More vibrant highlights
-  const awaitingRowBg = darkMode ? 'bg-emerald-900/45' : 'bg-emerald-100/80'
-  const awaitingTextMain = darkMode ? 'text-emerald-100' : 'text-emerald-950'
-  const awaitingTextSub = darkMode ? 'text-emerald-100/90' : 'text-emerald-950/90'
+  // ✅ Deeper + brighter highlights (green + red) to stand out
+  const awaitingRowBg = darkMode ? 'bg-emerald-800/55' : 'bg-emerald-200/90'
+  const awaitingTextMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
+  const awaitingTextSub = darkMode ? 'text-emerald-100/95' : 'text-emerald-900'
 
-  const signoutRowBg = darkMode ? 'bg-rose-900/40' : 'bg-rose-100/80'
-  const signoutTextMain = darkMode ? 'text-rose-100' : 'text-rose-950'
-  const signoutTextSub = darkMode ? 'text-rose-100/90' : 'text-rose-950/90'
+  const signoutRowBg = darkMode ? 'bg-rose-800/55' : 'bg-rose-200/90'
+  const signoutTextMain = darkMode ? 'text-rose-50' : 'text-rose-950'
+  const signoutTextSub = darkMode ? 'text-rose-100/95' : 'text-rose-900'
+
+  // Badge styles (⏳ Awaiting sign-out)
+  const signoutBadgeCls = darkMode
+    ? 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300/30 bg-rose-950/30 text-rose-50'
+    : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300 bg-rose-100 text-rose-900'
 
   if (loading) return <div className="p-6 text-xl">Loading screen display…</div>
 
@@ -485,13 +503,26 @@ export default function ScreenDisplay() {
                 return (
                   <tr key={i.id} className={`border-t ${rowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
                     <td className={`px-4 py-3 font-semibold ${mainCls}`}>
-                      {i.first_name} {i.surname}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>
+                          {i.first_name} {i.surname}
+                        </span>
+
+                        {awaitingSignOut && (
+                          <span className={signoutBadgeCls} aria-label="Awaiting sign-out" title="Awaiting sign-out">
+                            ⏳ <span>Awaiting sign-out</span>
+                          </span>
+                        )}
+                      </div>
                     </td>
+
                     <td className={`px-4 py-3 ${subCls}`}>{i.company}</td>
                     <td className={`px-4 py-3 ${subCls}`}>{areasTextForTables(i.areas)}</td>
+
                     <td className={`px-4 py-3 ${subCls}`}>
                       {i.fob_number ? i.fob_number : <span className="text-slate-400">-</span>}
                     </td>
+
                     <td className={`px-4 py-3 ${subCls}`}>
                       {formatStaffEmail(i.sign_in_confirmed_by_email) || <span className="text-slate-400">-</span>}
                     </td>
