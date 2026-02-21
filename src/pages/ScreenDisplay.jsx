@@ -146,38 +146,50 @@ function isOverflowing(el) {
   return el.scrollHeight > el.clientHeight + 4
 }
 
+// Most compatible programmatic scroll (works even in stricter fullscreen environments)
+function setScrollTopCompat(el, top) {
+  if (!el) return false
+  const t = Math.max(0, top)
+  try {
+    // Some browsers support scrollTo(x, y) but not scrollTo({top})
+    if (typeof el.scrollTo === 'function') {
+      el.scrollTo(0, t)
+      return true
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    el.scrollTop = t
+    return true
+  } catch {
+    return false
+  }
+}
+
 export default function ScreenDisplay() {
   const [items, setItems] = React.useState([])
   const [loading, setLoading] = React.useState(true)
   const [lastUpdated, setLastUpdated] = React.useState(null)
   const [error, setError] = React.useState('')
 
-  // Dark mode state (persisted)
   const [darkMode, setDarkMode] = React.useState(false)
-
-  // Fullscreen state
   const [isFullscreen, setIsFullscreen] = React.useState(false)
 
-  // ✅ TEMP: Auto-scroll toggle button (remove later)
+  // TEMP: Auto-scroll toggle
   const [autoScrollEnabled, setAutoScrollEnabled] = React.useState(false)
 
-  // Debug/status (helps confirm target + movement)
+  // Debug/status line
   const [scrollStatus, setScrollStatus] = React.useState('')
 
-  // Scroll container ref
   const scrollRef = React.useRef(null)
 
-  // -----------------------------
   // Dark mode persistence
-  // -----------------------------
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem('screenDisplayDarkMode')
-      if (saved === 'true' || saved === 'false') {
-        setDarkMode(saved === 'true')
-      } else if (window?.matchMedia) {
-        setDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches)
-      }
+      if (saved === 'true' || saved === 'false') setDarkMode(saved === 'true')
+      else if (window?.matchMedia) setDarkMode(window.matchMedia('(prefers-color-scheme: dark)').matches)
     } catch {
       // ignore
     }
@@ -191,9 +203,7 @@ export default function ScreenDisplay() {
     }
   }, [darkMode])
 
-  // -----------------------------
   // Track fullscreen changes
-  // -----------------------------
   React.useEffect(() => {
     const update = () => {
       const fsEl = document.fullscreenElement || document.webkitFullscreenElement
@@ -224,9 +234,7 @@ export default function ScreenDisplay() {
     }
   }
 
-  // -----------------------------
   // Data loading
-  // -----------------------------
   const loadRef = React.useRef(null)
 
   async function load() {
@@ -274,13 +282,7 @@ export default function ScreenDisplay() {
     }
   }, [])
 
-  // -----------------------------
-  // Auto scroll up/down (button-only control)
-  // - No input detection at all
-  // - Runs only when autoScrollEnabled = true AND overflow is true
-  // - Uses scrollTo() (more forceful than scrollTop +=)
-  // - Re-inits on fullscreen changes
-  // -----------------------------
+  // Auto-scroll (button-only; no input detection)
   React.useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -317,25 +319,23 @@ export default function ScreenDisplay() {
       )
     }
 
-    // Keep status fresh
-    updateStatus()
+    // Delay start slightly in fullscreen so layout settles
+    const startAt = performance.now() + (isFullscreen ? 350 : 0)
 
-    // Watch size changes (fullscreen/layout) so maxScrollTop updates correctly
-    let ro = null
-    if (window.ResizeObserver) {
-      ro = new ResizeObserver(() => {
-        updateStatus()
-      })
-      ro.observe(el)
-    }
+    // Update status periodically (not every frame)
+    const statusTimer = setInterval(updateStatus, 600)
+    updateStatus()
 
     const step = (t) => {
       const dt = Math.min((t - lastT) / 1000, 0.06)
       lastT = t
 
-      // Only scroll if overflow
+      if (t < startAt) {
+        rafId = requestAnimationFrame(step)
+        return
+      }
+
       if (!isOverflowing(el)) {
-        updateStatus()
         rafId = requestAnimationFrame(step)
         return
       }
@@ -348,11 +348,14 @@ export default function ScreenDisplay() {
       const delta = direction * speedPxPerSec * dt
       const next = Math.min(Math.max(el.scrollTop + delta, 0), maxScrollTop())
 
-      // Force scroll position (some environments ignore incremental scrollTop updates)
-      el.scrollTo({ top: next, behavior: 'auto' })
-
-      // Update status occasionally (not every frame heavy)
-      if (Math.random() < 0.08) updateStatus()
+      // ✅ Compatible scroll setter (works where scrollTo({top}) fails)
+      const ok = setScrollTopCompat(el, next)
+      if (!ok) {
+        // If we cannot set scrollTop programmatically at all, show a helpful status
+        setScrollStatus('Auto-scroll ON • overflow: yes • but browser blocked programmatic scrolling')
+        cancelAnimationFrame(rafId)
+        return
+      }
 
       if (direction > 0 && atBottom()) {
         direction = -1
@@ -369,7 +372,7 @@ export default function ScreenDisplay() {
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
-      if (ro) ro.disconnect()
+      clearInterval(statusTimer)
     }
   }, [autoScrollEnabled, items.length, darkMode, isFullscreen])
 
@@ -481,7 +484,6 @@ export default function ScreenDisplay() {
             {isFullscreen ? '⤢ Exit' : '⤢ Full'}
           </button>
 
-          {/* TEMP: Auto-scroll toggle */}
           <button
             type="button"
             onClick={() => setAutoScrollEnabled((v) => !v)}
@@ -572,7 +574,6 @@ export default function ScreenDisplay() {
                   </td>
                 </tr>
               )}
-
               {onSite.map((i) => {
                 const awaitingSignOut = !!i.signout_requested
                 const rowBg = awaitingSignOut ? signoutRowBg : ''
