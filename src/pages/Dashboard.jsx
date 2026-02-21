@@ -62,8 +62,8 @@ function shortArea(a) {
 function shortAreasList(areas) {
   const arr = Array.isArray(areas) ? areas : []
   const set = new Set()
-
   let hasOther = false
+
   for (const a of arr) {
     const s = shortArea(a)
     if (!s) continue
@@ -126,29 +126,52 @@ function downloadCsv(filename, rows) {
 
 // -----------------------------
 // JWT role helper (NO profiles query -> avoids Zscaler)
+// Reads role from JWT access_token payload (most reliable)
 // -----------------------------
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== 'string') return null
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+
+  try {
+    // base64url -> base64
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    // pad to length multiple of 4
+    while (b64.length % 4) b64 += '='
+    const json = atob(b64)
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
 async function getAppRoleFromAuth() {
-  // Primary: getSession()
+  // 1) Try session access token first
   try {
     const { data } = await supabase.auth.getSession()
-    const role = data?.session?.user?.app_metadata?.app_role
+    const token = data?.session?.access_token
+    const payload = decodeJwtPayload(token)
+    const role = payload?.app_metadata?.app_role || payload?.user_role || null
     if (role) return role
   } catch {
     // ignore
   }
 
-  // Fallback: localStorage auth token (no network)
+  // 2) Fallback to localStorage (no network)
   try {
     const key = Object.keys(localStorage).find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
     if (!key) return null
     const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    const role =
-      parsed?.currentSession?.user?.app_metadata?.app_role ||
-      parsed?.currentSession?.user?.user_metadata?.app_role ||
-      null
-    return role
+
+    const accessToken = parsed?.currentSession?.access_token || parsed?.access_token || null
+    const payload = decodeJwtPayload(accessToken)
+    const role = payload?.app_metadata?.app_role || payload?.user_role || null
+    if (role) return role
+
+    // last-chance mirror (often blank)
+    return parsed?.currentSession?.user?.app_metadata?.app_role || null
   } catch {
     return null
   }
@@ -160,6 +183,7 @@ async function getAppRoleFromAuth() {
 function Summary({ items }) {
   const onSite = items.filter((i) => i.status !== 'signed_out' && !i.signed_out_at)
 
+  // Count contractors per area (contractor counted for each area they selected)
   const counts = {}
   SHORT_ORDER.forEach((k) => {
     if (k !== 'Other') counts[k] = 0
@@ -180,20 +204,22 @@ function Summary({ items }) {
       }
     })
 
+    // Other is contractor-level count (not per-area)
     if (hasOther) otherCount += 1
   })
 
-  const tile = (label, value) => {
-    const cls =
-      'border border-[#0b3a5a] bg-[#0b3a5a] text-white rounded-lg px-3 py-2 shadow-sm flex items-center justify-between gap-3 min-w-[86px]'
-    return (
-      <div className={cls} key={label}>
-        <div className="text-xs font-semibold tracking-wide opacity-90">{label}</div>
-        <div className="text-lg font-bold leading-none">{value}</div>
-      </div>
-    )
-  }
+  // Deep elegant blue tiles with high contrast white text
+  const tileClass =
+    'border border-[#0b3a5a] bg-[#0b3a5a] text-white rounded-lg px-3 py-2 shadow-sm flex items-center justify-between gap-3 min-w-[86px]'
 
+  const tile = (label, value) => (
+    <div className={tileClass} key={label}>
+      <div className="text-xs font-semibold tracking-wide opacity-90">{label}</div>
+      <div className="text-lg font-bold leading-none">{value}</div>
+    </div>
+  )
+
+  // Hide zero counters except Total
   const tiles = []
   tiles.push(tile('Total', onSite.length))
 
@@ -236,7 +262,10 @@ function AwaitingRow({ item, onConfirm }) {
         />
       </td>
       <td className="px-2 py-2 whitespace-nowrap">
-        <button onClick={() => onConfirm(item.id, fob)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
+        <button
+          onClick={() => onConfirm(item.id, fob)}
+          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+        >
           Confirm sign-in
         </button>
       </td>
@@ -254,14 +283,21 @@ export default function Dashboard() {
   const [isAdmin, setIsAdmin] = React.useState(false)
   const [error, setError] = React.useState('')
 
-  // Signed-out display controls (per your request)
-  const [signedOutExpanded, setSignedOutExpanded] = React.useState(false) // false = last 12 hours + 5, true = last 4 days + 30
+  // Signed-out display controls:
+  // false = last 12 hours + 5 rows
+  // true  = last 4 days + 30 rows
+  const [signedOutExpanded, setSignedOutExpanded] = React.useState(false)
 
+  // --- fob logic helpers
   function hasFobIssued(item) {
     const v = (item?.fob_number || '').toString().trim()
     return v.length > 0
   }
 
+  // Sign-out rule:
+  // - Teamleader: must have signout_requested = true
+  // - If fob issued => must have fob_returned = true
+  // - Admin: keep conservative rule (fob => require returned, no fob => require requested)
   function canConfirmSignOut(item) {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
@@ -286,16 +322,17 @@ export default function Dashboard() {
   const loadRef = React.useRef(null)
 
   async function load() {
+    // reset only data errors (keep warning style minimal)
     setError('')
 
     // ✅ NO profiles query here (prevents Zscaler block)
     const role = await getAppRoleFromAuth()
     setIsAdmin(role === 'admin')
 
+    // soft warning if missing role (data still loads)
     if (!role) {
-      // Only a soft warning; data still loads.
       setError(
-        'Role not found in auth token. If this persists, log out and log in again (token refresh needed after hook/role changes).'
+        'Role not found in token. If you just enabled/changed the hook, log out and log in again (or refresh session) so a new token is issued.'
       )
     }
 
@@ -322,7 +359,7 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Realtime: refresh on contractors changes
+  // Realtime: refresh when contractors changes
   React.useEffect(() => {
     let debounceTimer = null
     const channel = supabase
@@ -361,17 +398,15 @@ export default function Dashboard() {
     const uid = userData?.user?.id || null
     const email = userData?.user?.email || null
 
-    const { error } = await supabase
-      .from('contractors')
-      .update({
-        status: 'confirmed',
-        sign_in_confirmed_at: new Date().toISOString(),
-        sign_in_confirmed_by: uid,
-        sign_in_confirmed_by_email: email,
-        fob_number: finalFob ? finalFob : null,
-      })
-      .eq('id', itemId)
+    const updatePayload = {
+      status: 'confirmed',
+      sign_in_confirmed_at: new Date().toISOString(),
+      sign_in_confirmed_by: uid,
+      sign_in_confirmed_by_email: email,
+      fob_number: finalFob ? finalFob : null, // null = "no fob issued"
+    }
 
+    const { error } = await supabase.from('contractors').update(updatePayload).eq('id', itemId)
     if (error) alert(error.message)
     else load()
   }
@@ -406,6 +441,7 @@ export default function Dashboard() {
     if (item && !hasFobIssued(item)) return
 
     const prevItems = items
+    // optimistic UI
     setItems((curr) => curr.map((i) => (i.id === itemId ? { ...i, fob_returned: value } : i)))
 
     const { error } = await supabase.from('contractors').update({ fob_returned: value }).eq('id', itemId)
@@ -467,7 +503,9 @@ export default function Dashboard() {
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
   const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
 
-  // Signed-out filtering (12h default, 4 days expanded)
+  // Signed-out filtering per your rules:
+  // default: last 12 hours + 5
+  // expanded: last 4 days + 30
   const now = Date.now()
   const cutoffMs = signedOutExpanded ? 4 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000
   const cutoff = now - cutoffMs
@@ -484,19 +522,28 @@ export default function Dashboard() {
       <h2 className="text-xl font-bold mb-2">Contractor/Visitor details</h2>
 
       <div className="flex flex-wrap gap-2 items-center mb-3">
-        <button onClick={handleRefresh} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
+        <button
+          onClick={handleRefresh}
+          className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
+        >
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
 
-        <button onClick={exportAllTables} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
+        <button
+          onClick={exportAllTables}
+          className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300"
+        >
           Export all tables (CSV)
         </button>
       </div>
 
-      {error && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
+      {error && (
+        <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>
+      )}
 
       <Summary items={items} />
 
+      {/* Awaiting confirmation */}
       <h3 className="text-lg font-semibold mt-4 mb-2">Awaiting confirmation</h3>
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
@@ -526,6 +573,7 @@ export default function Dashboard() {
         </table>
       </div>
 
+      {/* On site */}
       <h3 className="text-lg font-semibold mt-6 mb-2">Signed in contractors/visitors</h3>
       <div className="overflow-auto">
         <table className="min-w-full border border-slate-200 rounded">
@@ -602,7 +650,10 @@ export default function Dashboard() {
 
                   {isAdmin && (
                     <td className="px-2 py-2 whitespace-nowrap">
-                      <button onClick={() => remove(i.id)} className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded">
+                      <button
+                        onClick={() => remove(i.id)}
+                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
+                      >
                         Delete
                       </button>
                     </td>
@@ -614,6 +665,7 @@ export default function Dashboard() {
         </table>
       </div>
 
+      {/* Signed out */}
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <h3 className="text-lg font-semibold">
           Signed out (last {signedOutExpanded ? 30 : 5}
@@ -621,13 +673,19 @@ export default function Dashboard() {
         </h3>
 
         {!signedOutExpanded && signedOutAll.length > 5 && (
-          <button onClick={() => setSignedOutExpanded(true)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
+          <button
+            onClick={() => setSignedOutExpanded(true)}
+            className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
+          >
             Show more
           </button>
         )}
 
         {signedOutExpanded && (
-          <button onClick={() => setSignedOutExpanded(false)} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
+          <button
+            onClick={() => setSignedOutExpanded(false)}
+            className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300"
+          >
             Show less
           </button>
         )}
@@ -678,7 +736,9 @@ export default function Dashboard() {
         </table>
       </div>
 
-      <div className="mt-3 text-xs text-slate-600">Signed-out records are kept for up to 30 days and then automatically removed.</div>
+      <div className="mt-3 text-xs text-slate-600">
+        Signed-out records are kept for up to 30 days and then automatically removed.
+      </div>
     </div>
   )
 }
