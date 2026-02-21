@@ -267,7 +267,12 @@ export default function ScreenDisplay() {
 
   async function load() {
     setError('')
-    const { data, error: err } = await supabase.from('contractors').select('*').order('signed_in_at', { ascending: false }).limit(500)
+    const { data, error: err } = await supabase
+      .from('contractors')
+      .select('*')
+      .order('signed_in_at', { ascending: false })
+      .limit(500)
+
     if (err) setError(err.message)
     setItems(data || [])
     setLastUpdated(Date.now())
@@ -365,10 +370,15 @@ export default function ScreenDisplay() {
   const signoutTextMain = darkMode ? 'text-rose-50' : 'text-rose-950'
   const signoutTextSub = darkMode ? 'text-rose-100/95' : 'text-rose-900'
 
-  // Badge styles (⏳ Awaiting sign-out)
+  // Badge styles
   const signoutBadgeCls = darkMode
     ? 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300/30 bg-rose-950/30 text-rose-50'
     : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-rose-300 bg-rose-100 text-rose-900'
+
+  // ✅ NEW: Awaiting sign-in badge (same pill styling, themed emerald)
+  const awaitingBadgeCls = darkMode
+    ? 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-300/30 bg-emerald-950/30 text-emerald-50'
+    : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border border-emerald-300 bg-emerald-100 text-emerald-900'
 
   if (loading) return <div className="p-6 text-xl">Loading screen display…</div>
 
@@ -462,8 +472,18 @@ export default function ScreenDisplay() {
                   className={`border-t ${awaitingRowBg} ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}
                 >
                   <td className={`px-4 py-3 font-semibold ${awaitingTextMain}`}>
-                    {i.first_name} {i.surname}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>
+                        {i.first_name} {i.surname}
+                      </span>
+
+                      {/* ✅ NEW badge */}
+                      <span className={awaitingBadgeCls} aria-label="Awaiting sign-in" title="Awaiting sign-in">
+                        ⏳ <span>Awaiting sign-in</span>
+                      </span>
+                    </div>
                   </td>
+
                   <td className={`px-4 py-3 ${awaitingTextSub}`}>{i.company}</td>
                   <td className={`px-4 py-3 ${awaitingTextSub}`}>{areasTextForTables(i.areas)}</td>
                 </tr>
