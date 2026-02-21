@@ -154,6 +154,9 @@ export default function ScreenDisplay() {
   // Dark mode state (persisted)
   const [darkMode, setDarkMode] = React.useState(false)
 
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = React.useState(false)
+
   // Scroll container ref for auto-scroll
   const scrollRef = React.useRef(null)
 
@@ -177,6 +180,44 @@ export default function ScreenDisplay() {
       // ignore
     }
   }, [darkMode])
+
+  // Track fullscreen changes (works across most browsers + Safari fallback)
+  React.useEffect(() => {
+    const update = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement
+      setIsFullscreen(!!fsEl)
+    }
+    update()
+
+    document.addEventListener('fullscreenchange', update)
+    document.addEventListener('webkitfullscreenchange', update)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', update)
+      document.removeEventListener('webkitfullscreenchange', update)
+    }
+  }, [])
+
+  async function toggleFullscreen() {
+    try {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement
+      if (fsEl) {
+        if (document.exitFullscreen) await document.exitFullscreen()
+        else if (document.webkitExitFullscreen) await document.webkitExitFullscreen()
+        return
+      }
+
+      // Request fullscreen on the page container if possible, else fallback to documentElement
+      const target = scrollRef.current || document.documentElement
+
+      if (target.requestFullscreen) await target.requestFullscreen()
+      else if (target.webkitRequestFullscreen) await target.webkitRequestFullscreen()
+    } catch (e) {
+      // Some environments block fullscreen unless triggered by direct user interaction (this is still a click)
+      // or if embedded in an iframe without permissions.
+      setError('Fullscreen could not be enabled in this browser/environment.')
+    }
+  }
 
   const loadRef = React.useRef(null)
 
@@ -254,23 +295,19 @@ export default function ScreenDisplay() {
       const dt = (t - lastT) / 1000
       lastT = t
 
-      // Only animate if content overflows
       const overflow = el.scrollHeight > el.clientHeight + 4
       if (!overflow) {
         rafId = requestAnimationFrame(step)
         return
       }
 
-      // Pause if required
       if (t < pauseUntil) {
         rafId = requestAnimationFrame(step)
         return
       }
 
-      // Move
       el.scrollTop += direction * speedPxPerSec * dt
 
-      // Edge handling: pause then reverse
       if (direction > 0 && atBottom()) {
         direction = -1
         pauseUntil = t + edgePauseMs
@@ -282,7 +319,6 @@ export default function ScreenDisplay() {
       rafId = requestAnimationFrame(step)
     }
 
-    // Pause auto-scroll if user interacts
     const pauseForUser = () => {
       pauseUntil = performance.now() + userPauseMs
     }
@@ -301,7 +337,6 @@ export default function ScreenDisplay() {
       el.removeEventListener('mousedown', pauseForUser)
       window.removeEventListener('keydown', pauseForUser)
     }
-    // restart if data changes height significantly
   }, [items.length, darkMode])
 
   // Data buckets
@@ -377,19 +412,36 @@ export default function ScreenDisplay() {
           {error && <p className="text-red-400 mt-2">{error}</p>}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setDarkMode((v) => !v)}
-          className={
-            darkMode
-              ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
-              : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
-          }
-          aria-label="Toggle dark mode"
-          title="Toggle dark mode"
-        >
-          {darkMode ? '☾ Dark' : '☀ Light'}
-        </button>
+        {/* Buttons: Dark mode + Fullscreen */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDarkMode((v) => !v)}
+            className={
+              darkMode
+                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+            }
+            aria-label="Toggle dark mode"
+            title="Toggle dark mode"
+          >
+            {darkMode ? '☾ Dark' : '☀ Light'}
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={
+              darkMode
+                ? 'px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm'
+                : 'px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-900 text-sm'
+            }
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? '⤢ Exit' : '⤢ Full'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10 gap-2">
