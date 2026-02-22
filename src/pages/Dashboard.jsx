@@ -209,7 +209,7 @@ async function getAppRoleFromAuth() {
 }
 
 // -----------------------------
-// Section Header (solid colour, minimal height)
+// Section Header
 // -----------------------------
 function SectionHeader({ title, tone = 'slate' }) {
   const tones = {
@@ -273,33 +273,34 @@ function Summary({ items }) {
 }
 
 // -----------------------------
-// Awaiting Row (MORE VIBRANT GREEN)
+// Awaiting Row
 // -----------------------------
-function AwaitingRow({ item, onConfirm }) {
+function AwaitingRow({ item, onConfirm, darkMode }) {
   const [fob, setFob] = React.useState('')
 
+  const rowBg = darkMode ? 'bg-emerald-900/35' : 'bg-emerald-100/80'
+  const textMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
+  const textSoft = darkMode ? 'text-emerald-50/90' : 'text-emerald-950/90'
+  const inputCls = darkMode
+    ? 'border rounded px-2 py-1 w-28 bg-slate-900 text-slate-100 border-slate-600'
+    : 'border rounded px-2 py-1 w-28 bg-white'
+
   return (
-    <tr className="bg-emerald-100/80 dark:bg-emerald-900/30">
-      <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-950 dark:text-emerald-50">
+    <tr className={rowBg}>
+      <td className={`px-2 py-2 whitespace-nowrap font-semibold ${textMain}`}>
         {item.first_name} {item.surname}
       </td>
-      <td className="px-2 py-2 text-emerald-950/90 dark:text-emerald-50/90">
-        {item.company}
-      </td>
-      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90 dark:text-emerald-50/90">
-        {item.phone}
-      </td>
-      <td className="px-2 py-2 text-emerald-950/90 dark:text-emerald-50/90">
-        {areasTextForTables(item.areas)}
-      </td>
-      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90 dark:text-emerald-50/90">
+      <td className={`px-2 py-2 ${textSoft}`}>{item.company}</td>
+      <td className={`px-2 py-2 whitespace-nowrap ${textSoft}`}>{item.phone}</td>
+      <td className={`px-2 py-2 ${textSoft}`}>{areasTextForTables(item.areas)}</td>
+      <td className={`px-2 py-2 whitespace-nowrap ${textSoft}`}>
         {formatDateDayMonthTime(item.signed_in_at)}
       </td>
       <td className="px-2 py-2">
         <input
           value={fob}
           onChange={(e) => setFob(e.target.value)}
-          className="border rounded px-2 py-1 w-28 bg-white dark:bg-slate-900 dark:text-slate-100 dark:border-slate-600"
+          className={inputCls}
           placeholder="(optional)"
         />
       </td>
@@ -327,7 +328,7 @@ export default function Dashboard() {
   const [error, setError] = React.useState('')
   const [signedOutExpanded, setSignedOutExpanded] = React.useState(false)
 
-  // Dark mode
+  // Dark mode (works without Tailwind dark config)
   const [darkMode, setDarkMode] = React.useState(() => {
     try {
       return localStorage.getItem('theme') === 'dark'
@@ -337,8 +338,6 @@ export default function Dashboard() {
   })
 
   React.useEffect(() => {
-    // Apply Tailwind dark mode class to the root <html>
-    document.documentElement.classList.toggle('dark', darkMode)
     try {
       localStorage.setItem('theme', darkMode ? 'dark' : 'light')
     } catch {
@@ -555,7 +554,7 @@ export default function Dashboard() {
       areas: areasTextForTables(i.areas),
       status: i.status,
       fob_number: i.fob_number || '',
-      fob_returned: i.fob_returned ? 'true' : 'false',
+      fob_returned: hasFobIssued(i) ? (i.fob_returned ? 'true' : 'false') : 'N/A',
       signout_requested: i.signout_requested ? 'true' : 'false',
       signed_in_at: i.signed_in_at || '',
       sign_in_confirmed_at: i.sign_in_confirmed_at || '',
@@ -576,16 +575,24 @@ export default function Dashboard() {
   }
 
   // -----------------------------
-  // Render
+  // Render theme classes (no Tailwind dark: dependency)
   // -----------------------------
+  const pageBg = darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+  const cardBorder = darkMode ? 'border-slate-700' : 'border-slate-200'
+  const theadBg = darkMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-50 text-slate-700'
+  const btnLight = darkMode
+    ? 'bg-slate-800 text-slate-100 hover:bg-slate-700'
+    : 'bg-slate-200 hover:bg-slate-300'
+  const mutedText = darkMode ? 'text-slate-300' : 'text-slate-600'
+
   if (loading) return <div className="p-4">Loading...</div>
 
   if (appRole === 'Display') {
     return (
-      <div className="p-6 max-w-xl mx-auto">
-        <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-white dark:bg-slate-900 shadow-sm">
+      <div className={`p-6 max-w-xl mx-auto ${pageBg} min-h-screen`}>
+        <div className={`border ${cardBorder} rounded-lg p-4 bg-white ${darkMode ? 'bg-slate-900' : ''} shadow-sm`}>
           <h2 className="text-xl font-bold mb-2">Access denied</h2>
-          <p className="text-slate-700 dark:text-slate-200">
+          <p className={darkMode ? 'text-slate-200' : 'text-slate-700'}>
             Display accounts cannot access the Dashboard. Please use the Screen Display page.
           </p>
         </div>
@@ -594,7 +601,18 @@ export default function Dashboard() {
   }
 
   const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
-  const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
+
+  // Signed-in list, but with sign-out requested moved to top
+  const onSiteRaw = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
+  const onSite = [...onSiteRaw].sort((a, b) => {
+    const aReq = a.signout_requested ? 1 : 0
+    const bReq = b.signout_requested ? 1 : 0
+    if (bReq !== aReq) return bReq - aReq // requested first
+    // Then most recent sign-in first
+    const at = a.signed_in_at ? new Date(a.signed_in_at).getTime() : 0
+    const bt = b.signed_in_at ? new Date(b.signed_in_at).getTime() : 0
+    return bt - at
+  })
 
   const now = Date.now()
   const cutoffMs = signedOutExpanded ? 4 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000
@@ -607,14 +625,12 @@ export default function Dashboard() {
 
   const signedOut = signedOutAll.slice(0, signedOutExpanded ? 30 : 5)
 
-  const tableWrap = "overflow-auto"
-  const tableClass = "min-w-full border border-slate-200 dark:border-slate-700 rounded"
-  const theadClass = "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
-  const thClass = "text-left px-2 py-2"
-  const mutedNone = "px-2 py-3 text-slate-600 dark:text-slate-300"
+  const tableWrap = 'overflow-auto'
+  const tableClass = `min-w-full border ${cardBorder} rounded`
+  const thClass = 'text-left px-2 py-2'
 
   return (
-    <div className="p-4 bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-900 dark:text-slate-100">
+    <div className={`p-4 ${pageBg} min-h-screen`}>
       <h2 className="text-xl font-bold mb-2">Contractor/Visitor details</h2>
 
       <div className="flex flex-wrap gap-2 items-center mb-3">
@@ -627,7 +643,7 @@ export default function Dashboard() {
 
         <button
           onClick={exportAllTables}
-          className="px-3 py-1 text-sm bg-slate-200 dark:bg-slate-800 dark:text-slate-100 rounded hover:bg-slate-300 dark:hover:bg-slate-700"
+          className={`px-3 py-1 text-sm rounded ${btnLight}`}
         >
           Export all tables (CSV)
         </button>
@@ -642,7 +658,7 @@ export default function Dashboard() {
       </div>
 
       {error && (
-        <div className="mb-3 text-sm text-red-700 bg-red-50 dark:bg-red-950/40 dark:text-red-200 border border-red-200 dark:border-red-900 rounded p-2">
+        <div className={`mb-3 text-sm rounded p-2 border ${darkMode ? 'text-red-200 bg-red-950/40 border-red-900' : 'text-red-700 bg-red-50 border-red-200'}`}>
           {error}
         </div>
       )}
@@ -652,7 +668,7 @@ export default function Dashboard() {
       <SectionHeader title="Awaiting confirmation" tone="green" />
       <div className={tableWrap}>
         <table className={tableClass}>
-          <thead className={theadClass}>
+          <thead className={theadBg}>
             <tr>
               <th className={thClass}>Name</th>
               <th className={thClass}>Company</th>
@@ -666,13 +682,13 @@ export default function Dashboard() {
           <tbody>
             {awaiting.length === 0 && (
               <tr>
-                <td className={mutedNone} colSpan={7}>
+                <td className={`px-2 py-3 ${mutedText}`} colSpan={7}>
                   None
                 </td>
               </tr>
             )}
             {awaiting.map((i) => (
-              <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} />
+              <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} darkMode={darkMode} />
             ))}
           </tbody>
         </table>
@@ -681,7 +697,7 @@ export default function Dashboard() {
       <SectionHeader title="Signed in contractors/visitors" tone="blue" />
       <div className={tableWrap}>
         <table className={tableClass}>
-          <thead className={theadClass}>
+          <thead className={theadBg}>
             <tr>
               <th className={thClass}>Name</th>
               <th className={thClass}>Company</th>
@@ -699,7 +715,7 @@ export default function Dashboard() {
           <tbody>
             {onSite.length === 0 && (
               <tr>
-                <td className={mutedNone} colSpan={isAdmin ? 11 : 10}>
+                <td className={`px-2 py-3 ${mutedText}`} colSpan={isAdmin ? 11 : 10}>
                   None
                 </td>
               </tr>
@@ -710,8 +726,10 @@ export default function Dashboard() {
               const reason = signOutDisabledReason(i)
               const fobIssued = hasFobIssued(i)
 
-              // MORE VIBRANT RED when signout requested
-              const rowTone = i.signout_requested ? 'bg-rose-100/80 dark:bg-rose-900/25' : ''
+              // Vibrant red when signout requested
+              const rowTone = i.signout_requested
+                ? (darkMode ? 'bg-rose-900/25' : 'bg-rose-100/80')
+                : ''
 
               return (
                 <tr key={i.id} className={rowTone}>
@@ -725,15 +743,18 @@ export default function Dashboard() {
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
 
+                  {/* Fob returned: show N/A if no fob issued */}
                   <td className="px-2 py-2 whitespace-nowrap">
-                    <input
-                      type="checkbox"
-                      checked={!!i.fob_returned}
-                      disabled={!fobIssued}
-                      onChange={(e) => setFobReturned(i.id, e.target.checked)}
-                      className={!fobIssued ? 'cursor-not-allowed opacity-60' : ''}
-                      title={!fobIssued ? 'No fob issued' : 'Tick when fob returned'}
-                    />
+                    {!fobIssued ? (
+                      <span className={mutedText}>N/A</span>
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={!!i.fob_returned}
+                        onChange={(e) => setFobReturned(i.id, e.target.checked)}
+                        title="Tick when fob returned"
+                      />
+                    )}
                   </td>
 
                   <td className="px-2 py-2 whitespace-nowrap">{i.signout_requested ? 'Yes' : 'No'}</td>
@@ -746,7 +767,7 @@ export default function Dashboard() {
                       className={`px-3 py-1 rounded whitespace-nowrap text-sm ${
                         canSignOut
                           ? 'bg-green-600 hover:bg-green-700 text-white'
-                          : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                          : `${btnLight} opacity-70 cursor-not-allowed`
                       }`}
                       style={{ fontSize: '0.80rem' }}
                     >
@@ -789,7 +810,7 @@ export default function Dashboard() {
         {signedOutExpanded && (
           <button
             onClick={() => setSignedOutExpanded(false)}
-            className="px-3 py-1 text-sm bg-slate-200 dark:bg-slate-800 dark:text-slate-100 rounded hover:bg-slate-300 dark:hover:bg-slate-700"
+            className={`px-3 py-1 text-sm rounded ${btnLight}`}
           >
             Show less
           </button>
@@ -798,7 +819,7 @@ export default function Dashboard() {
 
       <div className="overflow-auto mt-2">
         <table className={tableClass}>
-          <thead className={theadClass}>
+          <thead className={theadBg}>
             <tr>
               <th className={thClass}>Name</th>
               <th className={thClass}>Company</th>
@@ -815,33 +836,41 @@ export default function Dashboard() {
           <tbody>
             {signedOut.length === 0 && (
               <tr>
-                <td className={mutedNone} colSpan={10}>
+                <td className={`px-2 py-3 ${mutedText}`} colSpan={10}>
                   None
                 </td>
               </tr>
             )}
 
-            {signedOut.map((i) => (
-              <tr key={i.id}>
-                <td className="px-2 py-2 whitespace-nowrap">
-                  {i.first_name} {i.surname}
-                </td>
-                <td className="px-2 py-2">{i.company}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
-                <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{i.fob_returned ? 'Yes' : 'No'}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
-                <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.signed_out_by_email) || '-'}</td>
-              </tr>
-            ))}
+            {signedOut.map((i) => {
+              const fobIssued = hasFobIssued(i)
+              return (
+                <tr key={i.id}>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {i.first_name} {i.surname}
+                  </td>
+                  <td className="px-2 py-2">{i.company}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
+                  <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
+
+                  {/* Signed-out table: show N/A if no fob issued */}
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {!fobIssued ? <span className={mutedText}>N/A</span> : (i.fob_returned ? 'Yes' : 'No')}
+                  </td>
+
+                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.signed_out_by_email) || '-'}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
-      <div className="mt-3 text-xs text-slate-600 dark:text-slate-300">
+      <div className={`mt-3 text-xs ${mutedText}`}>
         Signed-out records are kept for up to 30 days and then automatically removed.
       </div>
     </div>
