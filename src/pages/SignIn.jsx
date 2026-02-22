@@ -26,25 +26,24 @@ export default function SignIn() {
   // - clears on focus
   // - restores on blur if left empty
   const [otherArea, setOtherArea] = React.useState('Other')
+
   const [loading, setLoading] = React.useState(false)
   const [message, setMessage] = React.useState('')
   const [error, setError] = React.useState('')
 
-  // ✅ Success modal state
+  // ✅ Modal: only new state/logic (does not affect page styling/layout)
   const [showSuccessModal, setShowSuccessModal] = React.useState(false)
-  const acknowledgeBtnRef = React.useRef(null)
+  const acknowledgeRef = React.useRef(null)
 
-  // ✅ Lock body scroll when modal is open
+  // ✅ Block background scroll while modal is open + focus the button
   React.useEffect(() => {
     if (!showSuccessModal) return
 
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
-    // Focus the acknowledge button for accessibility / kiosk flow
-    const t = setTimeout(() => {
-      acknowledgeBtnRef.current?.focus()
-    }, 0)
+    // focus for kiosk / accessibility
+    const t = setTimeout(() => acknowledgeRef.current?.focus(), 0)
 
     return () => {
       clearTimeout(t)
@@ -53,12 +52,9 @@ export default function SignIn() {
   }, [showSuccessModal])
 
   function toggleArea(a) {
-    setForm((f) => {
+    setForm(f => {
       const exists = f.areas.includes(a)
-      return {
-        ...f,
-        areas: exists ? f.areas.filter((x) => x !== a) : [...f.areas, a],
-      }
+      return { ...f, areas: exists ? f.areas.filter(x => x !== a) : [...f.areas, a] }
     })
   }
 
@@ -81,21 +77,12 @@ export default function SignIn() {
       if (!pickedAreas.includes(otherLabel)) pickedAreas.push(otherLabel)
     }
 
-    if (
-      !form.first_name ||
-      !form.surname ||
-      !form.company ||
-      !form.phone ||
-      pickedAreas.length === 0
-    ) {
-      setError(
-        'All fields are mandatory and at least one Area of work must be selected (or enter an Other area).'
-      )
+    if (!form.first_name || !form.surname || !form.company || !form.phone || pickedAreas.length === 0) {
+      setError('All fields are mandatory and at least one Area of work must be selected (or enter an Other area).')
       return
     }
 
     setLoading(true)
-
     const { error: err } = await supabase.from('contractors').insert({
       first_name: form.first_name.trim(),
       surname: form.surname.trim(),
@@ -104,167 +91,71 @@ export default function SignIn() {
       areas: pickedAreas,
       status: 'pending',
     })
-
     setLoading(false)
 
-    if (err) {
-      setError(err.message)
-    } else {
-      // Keep your existing message behaviour (page stays as-is)
+    if (err) setError(err.message)
+    else {
       setMessage('Signed-in request recorded. Please see a Team Leader to receive a visitor fob.')
-
-      // Reset form exactly as you already do
       setForm({ first_name: '', surname: '', company: '', phone: '', areas: [] })
       setOtherArea('Other')
 
-      // ✅ Show the success modal
+      // ✅ Show modal on successful sign-in
       setShowSuccessModal(true)
     }
   }
 
   return (
-    <>
-      {/* ✅ Modal styles (scoped) */}
-      <style>{`
-        .successModalOverlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(15, 23, 42, 0.55);
-          backdrop-filter: blur(4px);
-          -webkit-backdrop-filter: blur(4px);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 9999;
-          padding: 16px;
-        }
-        .successModalCard {
-          width: min(680px, 100%);
-          background: #ffffff;
-          border-radius: 16px;
-          box-shadow: 0 24px 80px rgba(0,0,0,0.35);
-          border: 1px solid rgba(2, 6, 23, 0.10);
-          overflow: hidden;
-          transform: translateY(6px);
-          animation: popIn 160ms ease-out forwards;
-        }
-        @keyframes popIn {
-          from { opacity: 0; transform: translateY(10px) scale(0.99); }
-          to   { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        .successModalHeader {
-          padding: 18px 20px 10px 20px;
-          background: linear-gradient(180deg, rgba(34,197,94,0.10), rgba(34,197,94,0.00));
-          border-bottom: 1px solid rgba(2, 6, 23, 0.08);
-        }
-        .successModalTitle {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 700;
-          color: #0f172a;
-          display: flex;
-          gap: 10px;
-          align-items: center;
-        }
-        .successModalBody {
-          padding: 14px 20px 18px 20px;
-          color: #0f172a;
-          line-height: 1.45;
-          font-size: 15px;
-        }
-        .successModalCallout {
-          margin-top: 14px;
-          padding: 12px 14px;
-          border-radius: 12px;
-          background: rgba(59,130,246,0.08);
-          border: 1px solid rgba(59,130,246,0.18);
-          color: #0b1220;
-          font-size: 14px;
-          display: flex;
-          align-items: flex-start;
-          gap: 10px;
-        }
-        .successModalFooter {
-          padding: 14px 20px 18px 20px;
-          display: flex;
-          justify-content: flex-end;
-          border-top: 1px solid rgba(2, 6, 23, 0.08);
-          background: #fff;
-        }
-        .successModalBtn {
-          appearance: none;
-          border: none;
-          border-radius: 12px;
-          padding: 10px 14px;
-          font-weight: 700;
-          cursor: pointer;
-          background: #0f172a;
-          color: #ffffff;
-          box-shadow: 0 8px 24px rgba(15,23,42,0.18);
-        }
-        .successModalBtn:focus {
-          outline: 3px solid rgba(59,130,246,0.55);
-          outline-offset: 2px;
-        }
-        .successModalBtn:active {
-          transform: translateY(1px);
-        }
-      `}</style>
-
-      {/* ✅ Success Modal (blocks background scroll & clicks, no click-outside close) */}
+    <section className="max-w-xl mx-auto">
+      {/* ✅ Modal overlay (fixed, does NOT change your page look/layout) */}
       {showSuccessModal && (
         <div
-          className="successModalOverlay"
+          className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="success-modal-title"
-          // Block clicks from passing through the overlay:
-          onMouseDown={(e) => {
+          aria-labelledby="signin-success-title"
+          // Block click-through; does NOT close on background click
+          onMouseDown={e => {
             e.preventDefault()
             e.stopPropagation()
           }}
-          onClick={(e) => {
+          onClick={e => {
             e.preventDefault()
             e.stopPropagation()
           }}
         >
           <div
-            className="successModalCard"
-            onMouseDown={(e) => {
-              // Prevent “click background to close” behaviour in some setups
-              e.stopPropagation()
-            }}
-            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg rounded-xl bg-white border border-slate-200 shadow-2xl overflow-hidden"
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           >
-            <div className="successModalHeader">
-              <h2 id="success-modal-title" className="successModalTitle">
+            <div className="px-5 py-4 bg-emerald-50 border-b border-slate-200">
+              <h2 id="signin-success-title" className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <span aria-hidden="true">✅</span>
                 Sign-in registered
               </h2>
             </div>
 
-            <div className="successModalBody">
-              <div>
-                ✅ <strong>Sign-in registered</strong>Please see a team leader before entering any
-                operational areas. Please obtain a fob for logging onto the depot protection system, if
-                required.
-              </div>
+            <div className="p-5 space-y-4">
+              <p className="text-slate-800 leading-relaxed">
+                ✅ <span className="font-semibold">Sign in registered</span>, please see a team leader before entering
+                any operational areas. Obtain a fob for logging onto the depot protection system if required.
+              </p>
 
-              <div className="successModalCallout">
-                <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>
+              <div className="flex gap-3 rounded-lg bg-slate-50 border border-slate-200 p-4">
+                <div className="text-lg leading-none" aria-hidden="true">
                   ℹ️
-                </span>
-                <div>
-                  <strong>Any questions or concerns</strong> please contact the on duty manager.
                 </div>
+                <p className="text-slate-700 leading-relaxed">
+                  <span className="font-semibold">Any questions or concerns</span> please contact the on duty manager.
+                </p>
               </div>
             </div>
 
-            <div className="successModalFooter">
+            <div className="px-5 py-4 border-t border-slate-200 flex justify-end">
               <button
-                ref={acknowledgeBtnRef}
+                ref={acknowledgeRef}
                 type="button"
-                className="successModalBtn"
+                className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-sky-200"
                 onClick={() => setShowSuccessModal(false)}
               >
                 Acknowledge
@@ -274,80 +165,100 @@ export default function SignIn() {
         </div>
       )}
 
-      {/* ✅ Your existing page content below (unchanged) */}
-      <h2>Contractor/Visitor sign-in</h2>
+      {/* ✅ Everything below is your original page (unchanged) */}
+      <h1 className="text-2xl font-bold mb-4">Contractor/Visitor sign-in</h1>
 
-      <form onSubmit={handleSubmit}>
-        <label>
-          First name (unique identifier)
-          <input
-            value={form.first_name}
-            onChange={(e) => setForm({ ...form, first_name: e.target.value })}
-            required
-          />
-        </label>
+      <form onSubmit={handleSubmit} className="space-y-4 bg-white p-4 rounded border border-slate-200">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-slate-600">First name (unique identifier)</label>
+            <input
+              className="mt-1 w-full border rounded p-2"
+              value={form.first_name}
+              onChange={e => setForm({ ...form, first_name: e.target.value })}
+              required
+            />
+          </div>
 
-        <label>
-          Surname
-          <input
-            value={form.surname}
-            onChange={(e) => setForm({ ...form, surname: e.target.value })}
-            required
-          />
-        </label>
+          <div>
+            <label className="block text-sm text-slate-600">Surname</label>
+            <input
+              className="mt-1 w-full border rounded p-2"
+              value={form.surname}
+              onChange={e => setForm({ ...form, surname: e.target.value })}
+              required
+            />
+          </div>
 
-        <label>
-          Company
-          <input
-            value={form.company}
-            onChange={(e) => setForm({ ...form, company: e.target.value })}
-            required
-          />
-        </label>
+          <div>
+            <label className="block text-sm text-slate-600">Company</label>
+            <input
+              className="mt-1 w-full border rounded p-2"
+              value={form.company}
+              onChange={e => setForm({ ...form, company: e.target.value })}
+              required
+            />
+          </div>
 
-        <label>
-          Phone number (unique identifier)
-          <input
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            required
-          />
-        </label>
+          <div>
+            <label className="block text-sm text-slate-600">Phone number (unique identifier)</label>
+            <input
+              className="mt-1 w-full border rounded p-2"
+              inputMode="tel"
+              value={form.phone}
+              onChange={e => setForm({ ...form, phone: e.target.value })}
+              required
+            />
+          </div>
+        </div>
 
-        <fieldset>
-          <legend>Area of work (select one or more)</legend>
+        <div>
+          <label className="block text-sm text-slate-600 mb-1">Area of work (select one or more)</label>
 
-          {AREAS.map((a) => (
-            <label key={a}>
-              <input type="checkbox" checked={form.areas.includes(a)} onChange={() => toggleArea(a)} />
-              {a}
-            </label>
-          ))}
-        </fieldset>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {AREAS.map(a => (
+              <label
+                key={a}
+                className={`flex items-center gap-2 border rounded p-2 ${
+                  form.areas.includes(a) ? 'bg-slate-100 border-slate-400' : 'border-slate-200'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={form.areas.includes(a)}
+                  onChange={() => toggleArea(a)}
+                />
+                {a}
+              </label>
+            ))}
+          </div>
 
-        <label>
-          Other (if not listed)
-          <input
-            value={otherArea}
-            onChange={(e) => setOtherArea(e.target.value)}
-            onFocus={() => {
-              if ((otherArea || '').trim().toLowerCase() === 'other') setOtherArea('')
-            }}
-            onBlur={() => {
-              if (!otherArea || otherArea.trim() === '') setOtherArea('Other')
-            }}
-          />
-        </label>
+          <div className="mt-3">
+            <label className="block text-sm text-slate-600 mb-1">Other (if not listed)</label>
+            <input
+              className="w-full border rounded p-2 bg-slate-50 focus:bg-white"
+              value={otherArea}
+              onChange={e => setOtherArea(e.target.value)}
+              onFocus={() => {
+                if ((otherArea || '').trim().toLowerCase() === 'other') setOtherArea('')
+              }}
+              onBlur={() => {
+                if (!otherArea || otherArea.trim() === '') setOtherArea('Other')
+              }}
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              If used, it will be saved as <span className="font-mono">Other: your text</span>.
+            </p>
+          </div>
+        </div>
 
-        <small>If used, it will be saved as Other: your text.</small>
+        {error && <p className="text-red-600">{error}</p>}
+        {message && <p className="text-green-700">{message}</p>}
 
-        {error && <p style={{ color: 'crimson' }}>{error}</p>}
-        {message && <p style={{ color: 'green' }}>{message}</p>}
-
-        <button disabled={loading} type="submit">
+        <button disabled={loading} className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50">
           {loading ? 'Submitting...' : 'Sign-in'}
         </button>
       </form>
-    </>
+    </section>
   )
 }
