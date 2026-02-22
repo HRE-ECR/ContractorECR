@@ -581,7 +581,7 @@ export default function ScreenDisplay() {
     <section className={`space-y-4 p-2 ${fullscreenShell} ${pageBg}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Screen display</h1>
+          <h1 className="text-2xl font-bold">Contractor/Visitor control</h1>
           <p className={`text-sm ${mutedText}`}>
             Live view — updates automatically
             {lastUpdated ? ` • Last updated: ${formatDayMonthTime(lastUpdated)}` : ''}
