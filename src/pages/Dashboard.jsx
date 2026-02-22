@@ -44,7 +44,10 @@ function isOtherArea(a) {
   const s = String(a).trim()
   if (!s) return false
   if (s.toLowerCase().startsWith('other:')) return true
-  return !STANDARD_DB_AREAS.includes(s) && !Object.prototype.hasOwnProperty.call(AREA_SHORT_MAP, s)
+  return (
+    !STANDARD_DB_AREAS.includes(s) &&
+    !Object.prototype.hasOwnProperty.call(AREA_SHORT_MAP, s)
+  )
 }
 
 function extractOtherText(a) {
@@ -129,8 +132,7 @@ function formatStaffEmail(email) {
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
 
   const initial = (firstPart[0] || '').toUpperCase()
-  const surname =
-    (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
+  const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
 
   if (!initial || !surname) return local
   return `${initial}.${surname}`
@@ -197,8 +199,7 @@ async function getAppRoleFromAuth() {
     const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    const accessToken =
-      parsed?.currentSession?.access_token || parsed?.access_token || null
+    const accessToken = parsed?.currentSession?.access_token || parsed?.access_token || null
     const payload = decodeJwtPayload(accessToken)
     const role = payload?.app_metadata?.app_role || payload?.user_role || null
     if (role) return role
@@ -223,6 +224,26 @@ function SectionHeader({ title, tone = 'slate' }) {
       <div className="text-sm font-semibold tracking-wide">{title}</div>
     </div>
   )
+}
+
+// -----------------------------
+// Badge (timer pill) - tuned for light + dark
+// -----------------------------
+function TimerBadge({ tone = 'green', text, darkMode }) {
+  const base = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap'
+
+  const greenLight = 'bg-emerald-700 text-white border-emerald-800'
+  const greenDark = 'bg-emerald-400/20 text-emerald-50 border-emerald-300'
+
+  const redLight = 'bg-rose-700 text-white border-rose-800'
+  const redDark = 'bg-rose-400/20 text-rose-50 border-rose-300'
+
+  const cls =
+    tone === 'red'
+      ? `${base} ${darkMode ? redDark : redLight}`
+      : `${base} ${darkMode ? greenDark : greenLight}`
+
+  return <span className={cls}>⏱️ {text}</span>
 }
 
 // -----------------------------
@@ -273,22 +294,31 @@ function Summary({ items }) {
 }
 
 // -----------------------------
-// Awaiting Row
+// Awaiting Row (MORE VIBRANT GREEN - light + dark) + TIMER BADGE
 // -----------------------------
 function AwaitingRow({ item, onConfirm, darkMode }) {
   const [fob, setFob] = React.useState('')
 
-  const rowBg = darkMode ? 'bg-emerald-900/35' : 'bg-emerald-100/80'
+  // Stronger green for both modes
+  const rowBg = darkMode ? 'bg-emerald-500/25' : 'bg-emerald-200'
+  const accent = darkMode ? 'border-l-4 border-emerald-400' : 'border-l-4 border-emerald-700'
+
   const textMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
   const textSoft = darkMode ? 'text-emerald-50/90' : 'text-emerald-950/90'
+
   const inputCls = darkMode
     ? 'border rounded px-2 py-1 w-28 bg-slate-900 text-slate-100 border-slate-600'
     : 'border rounded px-2 py-1 w-28 bg-white'
 
   return (
     <tr className={rowBg}>
-      <td className={`px-2 py-2 whitespace-nowrap font-semibold ${textMain}`}>
-        {item.first_name} {item.surname}
+      <td className={`px-2 py-2 whitespace-nowrap font-semibold ${textMain} ${accent}`}>
+        <div className="flex items-center gap-2">
+          <TimerBadge tone="green" text="Awaiting sign-in" darkMode={darkMode} />
+          <span>
+            {item.first_name} {item.surname}
+          </span>
+        </div>
       </td>
       <td className={`px-2 py-2 ${textSoft}`}>{item.company}</td>
       <td className={`px-2 py-2 whitespace-nowrap ${textSoft}`}>{item.phone}</td>
@@ -520,7 +550,11 @@ export default function Dashboard() {
     const prevItems = items
     setItems((curr) => curr.map((i) => (i.id === itemId ? { ...i, fob_returned: value } : i)))
 
-    const { error } = await supabase.from('contractors').update({ fob_returned: value }).eq('id', itemId)
+    const { error } = await supabase
+      .from('contractors')
+      .update({ fob_returned: value })
+      .eq('id', itemId)
+
     if (error) {
       setItems(prevItems)
       alert(error.message)
@@ -590,7 +624,11 @@ export default function Dashboard() {
   if (appRole === 'Display') {
     return (
       <div className={`p-6 max-w-xl mx-auto ${pageBg} min-h-screen`}>
-        <div className={`border ${cardBorder} rounded-lg p-4 bg-white ${darkMode ? 'bg-slate-900' : ''} shadow-sm`}>
+        <div
+          className={`border ${cardBorder} rounded-lg p-4 ${
+            darkMode ? 'bg-slate-900' : 'bg-white'
+          } shadow-sm`}
+        >
           <h2 className="text-xl font-bold mb-2">Access denied</h2>
           <p className={darkMode ? 'text-slate-200' : 'text-slate-700'}>
             Display accounts cannot access the Dashboard. Please use the Screen Display page.
@@ -608,7 +646,6 @@ export default function Dashboard() {
     const aReq = a.signout_requested ? 1 : 0
     const bReq = b.signout_requested ? 1 : 0
     if (bReq !== aReq) return bReq - aReq // requested first
-    // Then most recent sign-in first
     const at = a.signed_in_at ? new Date(a.signed_in_at).getTime() : 0
     const bt = b.signed_in_at ? new Date(b.signed_in_at).getTime() : 0
     return bt - at
@@ -641,10 +678,7 @@ export default function Dashboard() {
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
 
-        <button
-          onClick={exportAllTables}
-          className={`px-3 py-1 text-sm rounded ${btnLight}`}
-        >
+        <button onClick={exportAllTables} className={`px-3 py-1 text-sm rounded ${btnLight}`}>
           Export all tables (CSV)
         </button>
 
@@ -658,7 +692,13 @@ export default function Dashboard() {
       </div>
 
       {error && (
-        <div className={`mb-3 text-sm rounded p-2 border ${darkMode ? 'text-red-200 bg-red-950/40 border-red-900' : 'text-red-700 bg-red-50 border-red-200'}`}>
+        <div
+          className={`mb-3 text-sm rounded p-2 border ${
+            darkMode
+              ? 'text-red-200 bg-red-950/40 border-red-900'
+              : 'text-red-700 bg-red-50 border-red-200'
+          }`}
+        >
           {error}
         </div>
       )}
@@ -726,22 +766,41 @@ export default function Dashboard() {
               const reason = signOutDisabledReason(i)
               const fobIssued = hasFobIssued(i)
 
-              // Vibrant red when signout requested
+              // MORE VIBRANT RED for sign-out requested (light + dark)
               const rowTone = i.signout_requested
-                ? (darkMode ? 'bg-rose-900/25' : 'bg-rose-100/80')
+                ? darkMode
+                  ? 'bg-rose-500/25'
+                  : 'bg-rose-200'
+                : ''
+
+              const accent = i.signout_requested
+                ? darkMode
+                  ? 'border-l-4 border-rose-400'
+                  : 'border-l-4 border-rose-700'
                 : ''
 
               return (
                 <tr key={i.id} className={rowTone}>
-                  <td className="px-2 py-2 whitespace-nowrap font-semibold">
-                    {i.first_name} {i.surname}
+                  <td className={`px-2 py-2 whitespace-nowrap font-semibold ${accent}`}>
+                    <div className="flex items-center gap-2">
+                      {i.signout_requested && (
+                        <TimerBadge tone="red" text="Awaiting sign-out" darkMode={darkMode} />
+                      )}
+                      <span>
+                        {i.first_name} {i.surname}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-2 py-2">{i.company}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
                   <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatDateDayMonthTime(i.signed_in_at)}
+                  </td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
+                  </td>
 
                   {/* Fob returned: show N/A if no fob issued */}
                   <td className="px-2 py-2 whitespace-nowrap">
@@ -856,13 +915,21 @@ export default function Dashboard() {
 
                   {/* Signed-out table: show N/A if no fob issued */}
                   <td className="px-2 py-2 whitespace-nowrap">
-                    {!fobIssued ? <span className={mutedText}>N/A</span> : (i.fob_returned ? 'Yes' : 'No')}
+                    {!fobIssued ? <span className={mutedText}>N/A</span> : i.fob_returned ? 'Yes' : 'No'}
                   </td>
 
-                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.signed_out_by_email) || '-'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatDateDayMonthTime(i.signed_in_at)}
+                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatDateDayMonthTime(i.signed_out_at)}
+                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
+                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatStaffEmail(i.signed_out_by_email) || '-'}
+                  </td>
                 </tr>
               )
             })}
