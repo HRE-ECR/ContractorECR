@@ -227,10 +227,11 @@ function SectionHeader({ title, tone = 'slate' }) {
 }
 
 // -----------------------------
-// Badge (timer pill) - tuned for light + dark
+// Badge (hourglass pill) - no text + subtle pulse
 // -----------------------------
-function TimerBadge({ tone = 'green', text, darkMode }) {
-  const base = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap'
+function HourglassBadge({ tone = 'green', darkMode, title }) {
+  const base =
+    'inline-flex items-center justify-center w-8 h-6 rounded-full text-xs font-bold border whitespace-nowrap select-none'
 
   const greenLight = 'bg-emerald-700 text-white border-emerald-800'
   const greenDark = 'bg-emerald-400/20 text-emerald-50 border-emerald-300'
@@ -240,10 +241,14 @@ function TimerBadge({ tone = 'green', text, darkMode }) {
 
   const cls =
     tone === 'red'
-      ? `${base} ${darkMode ? redDark : redLight}`
-      : `${base} ${darkMode ? greenDark : greenLight}`
+      ? `${base} subtle-pulse ${darkMode ? redDark : redLight}`
+      : `${base} subtle-pulse ${darkMode ? greenDark : greenLight}`
 
-  return <span className={cls}>⏱️ {text}</span>
+  return (
+    <span className={cls} title={title} aria-label={title}>
+      ⏳
+    </span>
+  )
 }
 
 // -----------------------------
@@ -294,12 +299,11 @@ function Summary({ items }) {
 }
 
 // -----------------------------
-// Awaiting Row (MORE VIBRANT GREEN - light + dark) + TIMER BADGE
+// Awaiting Row (VIBRANT GREEN) + HOURGLASS BADGE
 // -----------------------------
 function AwaitingRow({ item, onConfirm, darkMode }) {
   const [fob, setFob] = React.useState('')
 
-  // Stronger green for both modes
   const rowBg = darkMode ? 'bg-emerald-500/25' : 'bg-emerald-200'
   const accent = darkMode ? 'border-l-4 border-emerald-400' : 'border-l-4 border-emerald-700'
 
@@ -314,7 +318,7 @@ function AwaitingRow({ item, onConfirm, darkMode }) {
     <tr className={rowBg}>
       <td className={`px-2 py-2 whitespace-nowrap font-semibold ${textMain} ${accent}`}>
         <div className="flex items-center gap-2">
-          <TimerBadge tone="green" text="Awaiting sign-in" darkMode={darkMode} />
+          <HourglassBadge tone="green" darkMode={darkMode} title="Awaiting sign-in" />
           <span>
             {item.first_name} {item.surname}
           </span>
@@ -550,11 +554,7 @@ export default function Dashboard() {
     const prevItems = items
     setItems((curr) => curr.map((i) => (i.id === itemId ? { ...i, fob_returned: value } : i)))
 
-    const { error } = await supabase
-      .from('contractors')
-      .update({ fob_returned: value })
-      .eq('id', itemId)
-
+    const { error } = await supabase.from('contractors').update({ fob_returned: value }).eq('id', itemId)
     if (error) {
       setItems(prevItems)
       alert(error.message)
@@ -624,11 +624,7 @@ export default function Dashboard() {
   if (appRole === 'Display') {
     return (
       <div className={`p-6 max-w-xl mx-auto ${pageBg} min-h-screen`}>
-        <div
-          className={`border ${cardBorder} rounded-lg p-4 ${
-            darkMode ? 'bg-slate-900' : 'bg-white'
-          } shadow-sm`}
-        >
+        <div className={`border ${cardBorder} rounded-lg p-4 ${darkMode ? 'bg-slate-900' : 'bg-white'} shadow-sm`}>
           <h2 className="text-xl font-bold mb-2">Access denied</h2>
           <p className={darkMode ? 'text-slate-200' : 'text-slate-700'}>
             Display accounts cannot access the Dashboard. Please use the Screen Display page.
@@ -645,7 +641,7 @@ export default function Dashboard() {
   const onSite = [...onSiteRaw].sort((a, b) => {
     const aReq = a.signout_requested ? 1 : 0
     const bReq = b.signout_requested ? 1 : 0
-    if (bReq !== aReq) return bReq - aReq // requested first
+    if (bReq !== aReq) return bReq - aReq
     const at = a.signed_in_at ? new Date(a.signed_in_at).getTime() : 0
     const bt = b.signed_in_at ? new Date(b.signed_in_at).getTime() : 0
     return bt - at
@@ -668,6 +664,17 @@ export default function Dashboard() {
 
   return (
     <div className={`p-4 ${pageBg} min-h-screen`}>
+      {/* Subtle pulse animation (self-contained, no Tailwind config needed) */}
+      <style>{`
+        @keyframes subtlePulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.06); opacity: 0.88; }
+        }
+        .subtle-pulse {
+          animation: subtlePulse 1.8s ease-in-out infinite;
+        }
+      `}</style>
+
       <h2 className="text-xl font-bold mb-2">Contractor/Visitor details</h2>
 
       <div className="flex flex-wrap gap-2 items-center mb-3">
@@ -766,7 +773,6 @@ export default function Dashboard() {
               const reason = signOutDisabledReason(i)
               const fobIssued = hasFobIssued(i)
 
-              // MORE VIBRANT RED for sign-out requested (light + dark)
               const rowTone = i.signout_requested
                 ? darkMode
                   ? 'bg-rose-500/25'
@@ -784,7 +790,7 @@ export default function Dashboard() {
                   <td className={`px-2 py-2 whitespace-nowrap font-semibold ${accent}`}>
                     <div className="flex items-center gap-2">
                       {i.signout_requested && (
-                        <TimerBadge tone="red" text="Awaiting sign-out" darkMode={darkMode} />
+                        <HourglassBadge tone="red" darkMode={darkMode} title="Awaiting sign-out" />
                       )}
                       <span>
                         {i.first_name} {i.surname}
@@ -794,15 +800,10 @@ export default function Dashboard() {
                   <td className="px-2 py-2">{i.company}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
                   <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {formatDateDayMonthTime(i.signed_in_at)}
-                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
-                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
 
-                  {/* Fob returned: show N/A if no fob issued */}
                   <td className="px-2 py-2 whitespace-nowrap">
                     {!fobIssued ? (
                       <span className={mutedText}>N/A</span>
@@ -858,19 +859,13 @@ export default function Dashboard() {
         </div>
 
         {!signedOutExpanded && signedOutAll.length > 5 && (
-          <button
-            onClick={() => setSignedOutExpanded(true)}
-            className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
-          >
+          <button onClick={() => setSignedOutExpanded(true)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
             Show more
           </button>
         )}
 
         {signedOutExpanded && (
-          <button
-            onClick={() => setSignedOutExpanded(false)}
-            className={`px-3 py-1 text-sm rounded ${btnLight}`}
-          >
+          <button onClick={() => setSignedOutExpanded(false)} className={`px-3 py-1 text-sm rounded ${btnLight}`}>
             Show less
           </button>
         )}
@@ -905,31 +900,18 @@ export default function Dashboard() {
               const fobIssued = hasFobIssued(i)
               return (
                 <tr key={i.id}>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {i.first_name} {i.surname}
-                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">{i.first_name} {i.surname}</td>
                   <td className="px-2 py-2">{i.company}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
                   <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-
-                  {/* Signed-out table: show N/A if no fob issued */}
                   <td className="px-2 py-2 whitespace-nowrap">
                     {!fobIssued ? <span className={mutedText}>N/A</span> : i.fob_returned ? 'Yes' : 'No'}
                   </td>
-
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {formatDateDayMonthTime(i.signed_in_at)}
-                  </td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {formatDateDayMonthTime(i.signed_out_at)}
-                  </td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}
-                  </td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {formatStaffEmail(i.signed_out_by_email) || '-'}
-                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.signed_out_by_email) || '-'}</td>
                 </tr>
               )
             })}
