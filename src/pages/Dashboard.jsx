@@ -15,7 +15,6 @@ const AREA_SHORT_MAP = {
   '2-Clean': '2CL',
   '3-Clean': '3CL',
   '4-Clean': '4CL',
-
   // Allow already-short values too (just in case)
   M1: 'M1',
   M2: 'M2',
@@ -121,6 +120,7 @@ function formatStaffEmail(email) {
   if (!email) return ''
   const e = String(email).trim()
   if (!e) return ''
+
   const local = e.split('@')[0] || ''
   if (!local) return ''
 
@@ -129,7 +129,8 @@ function formatStaffEmail(email) {
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
 
   const initial = (firstPart[0] || '').toUpperCase()
-  const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
+  const surname =
+    (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
 
   if (!initial || !surname) return local
   return `${initial}.${surname}`
@@ -149,7 +150,6 @@ function downloadCsv(filename, rows) {
   const header = Object.keys(rows[0]).join(',')
   const lines = rows.map((r) => Object.values(r).map(csvEscape).join(','))
   const csv = [header, ...lines].join(NL)
-
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -190,12 +190,15 @@ async function getAppRoleFromAuth() {
   }
 
   try {
-    const key = Object.keys(localStorage).find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
+    const key = Object.keys(localStorage).find(
+      (k) => k.startsWith('sb-') && k.endsWith('-auth-token')
+    )
     if (!key) return null
     const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    const accessToken = parsed?.currentSession?.access_token || parsed?.access_token || null
+    const accessToken =
+      parsed?.currentSession?.access_token || parsed?.access_token || null
     const payload = decodeJwtPayload(accessToken)
     const role = payload?.app_metadata?.app_role || payload?.user_role || null
     if (role) return role
@@ -232,6 +235,7 @@ function Summary({ items }) {
   SHORT_ORDER.forEach((k) => {
     counts[k] = 0
   })
+
   let otherCount = 0
 
   onSite.forEach((i) => {
@@ -254,7 +258,7 @@ function Summary({ items }) {
   )
 
   const tiles = []
-  tiles.push(tile('Total', onSite.length))
+  tiles.push(tile('Total 👷‍♂️', onSite.length))
   SHORT_ORDER.forEach((k) => {
     const v = counts[k] || 0
     if (v > 0) tiles.push(tile(k, v))
@@ -273,20 +277,29 @@ function Summary({ items }) {
 // -----------------------------
 function AwaitingRow({ item, onConfirm }) {
   const [fob, setFob] = React.useState('')
+
   return (
-    <tr className="bg-emerald-100/80">
-      <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-950">
+    <tr className="bg-emerald-100/80 dark:bg-emerald-900/30">
+      <td className="px-2 py-2 whitespace-nowrap font-semibold text-emerald-950 dark:text-emerald-50">
         {item.first_name} {item.surname}
       </td>
-      <td className="px-2 py-2 text-emerald-950/90">{item.company}</td>
-      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90">{item.phone}</td>
-      <td className="px-2 py-2 text-emerald-950/90">{areasTextForTables(item.areas)}</td>
-      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90">{formatDateDayMonthTime(item.signed_in_at)}</td>
+      <td className="px-2 py-2 text-emerald-950/90 dark:text-emerald-50/90">
+        {item.company}
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90 dark:text-emerald-50/90">
+        {item.phone}
+      </td>
+      <td className="px-2 py-2 text-emerald-950/90 dark:text-emerald-50/90">
+        {areasTextForTables(item.areas)}
+      </td>
+      <td className="px-2 py-2 whitespace-nowrap text-emerald-950/90 dark:text-emerald-50/90">
+        {formatDateDayMonthTime(item.signed_in_at)}
+      </td>
       <td className="px-2 py-2">
         <input
           value={fob}
           onChange={(e) => setFob(e.target.value)}
-          className="border rounded px-2 py-1 w-28 bg-white"
+          className="border rounded px-2 py-1 w-28 bg-white dark:bg-slate-900 dark:text-slate-100 dark:border-slate-600"
           placeholder="(optional)"
         />
       </td>
@@ -314,6 +327,29 @@ export default function Dashboard() {
   const [error, setError] = React.useState('')
   const [signedOutExpanded, setSignedOutExpanded] = React.useState(false)
 
+  // Dark mode
+  const [darkMode, setDarkMode] = React.useState(() => {
+    try {
+      return localStorage.getItem('theme') === 'dark'
+    } catch {
+      return false
+    }
+  })
+
+  React.useEffect(() => {
+    // Apply Tailwind dark mode class to the root <html>
+    document.documentElement.classList.toggle('dark', darkMode)
+    try {
+      localStorage.setItem('theme', darkMode ? 'dark' : 'light')
+    } catch {
+      // ignore
+    }
+  }, [darkMode])
+
+  function toggleDarkMode() {
+    setDarkMode((v) => !v)
+  }
+
   function hasFobIssued(item) {
     const v = (item?.fob_number || '').toString().trim()
     return v.length > 0
@@ -322,10 +358,12 @@ export default function Dashboard() {
   function canConfirmSignOut(item) {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
+
     if (isAdmin) {
       if (fobIssued) return !!item.fob_returned
       return !!item.signout_requested
     }
+
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -344,6 +382,7 @@ export default function Dashboard() {
 
   async function load() {
     setError('')
+
     const role = await getAppRoleFromAuth()
     setAppRole(role)
     setIsAdmin(role === 'admin')
@@ -379,6 +418,7 @@ export default function Dashboard() {
 
   React.useEffect(() => {
     if (appRole === 'Display') return
+
     let debounceTimer = null
     const channel = supabase
       .channel('contractors-db-changes')
@@ -402,9 +442,29 @@ export default function Dashboard() {
     setRefreshing(false)
   }
 
+  function normalizeFob(v) {
+    return (v || '').toString().trim().toLowerCase()
+  }
+
   async function confirmSignIn(itemId, fob) {
     const raw = (fob || '').toString().trim()
     let finalFob = raw
+
+    // If fob was entered, ensure it isn't already assigned to someone currently on site
+    if (finalFob) {
+      const entered = normalizeFob(finalFob)
+      const inUse = items.some((i) => {
+        const isActive = i.status === 'confirmed' && !i.signed_out_at
+        if (!isActive) return false
+        const existing = normalizeFob(i.fob_number)
+        return existing && existing === entered
+      })
+
+      if (inUse) {
+        alert('Fob # already in use, please select another')
+        return
+      }
+    }
 
     if (!finalFob) {
       const ok = confirm('No fob number entered. Confirm that no fob is required or being issued?')
@@ -515,14 +575,19 @@ export default function Dashboard() {
     downloadCsv(`contractors_export_${stamp}.csv`, rows)
   }
 
+  // -----------------------------
+  // Render
+  // -----------------------------
   if (loading) return <div className="p-4">Loading...</div>
 
   if (appRole === 'Display') {
     return (
       <div className="p-6 max-w-xl mx-auto">
-        <div className="border border-slate-200 rounded-lg p-4 bg-white shadow-sm">
+        <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-white dark:bg-slate-900 shadow-sm">
           <h2 className="text-xl font-bold mb-2">Access denied</h2>
-          <p className="text-slate-700">Display accounts cannot access the Dashboard. Please use the Screen Display page.</p>
+          <p className="text-slate-700 dark:text-slate-200">
+            Display accounts cannot access the Dashboard. Please use the Screen Display page.
+          </p>
         </div>
       </div>
     )
@@ -542,42 +607,66 @@ export default function Dashboard() {
 
   const signedOut = signedOutAll.slice(0, signedOutExpanded ? 30 : 5)
 
+  const tableWrap = "overflow-auto"
+  const tableClass = "min-w-full border border-slate-200 dark:border-slate-700 rounded"
+  const theadClass = "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+  const thClass = "text-left px-2 py-2"
+  const mutedNone = "px-2 py-3 text-slate-600 dark:text-slate-300"
+
   return (
-    <div className="p-4">
+    <div className="p-4 bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-900 dark:text-slate-100">
       <h2 className="text-xl font-bold mb-2">Contractor/Visitor details</h2>
 
       <div className="flex flex-wrap gap-2 items-center mb-3">
-        <button onClick={handleRefresh} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
+        <button
+          onClick={handleRefresh}
+          className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
+        >
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
 
-        <button onClick={exportAllTables} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
+        <button
+          onClick={exportAllTables}
+          className="px-3 py-1 text-sm bg-slate-200 dark:bg-slate-800 dark:text-slate-100 rounded hover:bg-slate-300 dark:hover:bg-slate-700"
+        >
           Export all tables (CSV)
+        </button>
+
+        <button
+          onClick={toggleDarkMode}
+          className="ml-auto px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
+          title="Toggle dark mode"
+        >
+          {darkMode ? '☀️ Light mode' : '🌙 Dark mode'}
         </button>
       </div>
 
-      {error && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
+      {error && (
+        <div className="mb-3 text-sm text-red-700 bg-red-50 dark:bg-red-950/40 dark:text-red-200 border border-red-200 dark:border-red-900 rounded p-2">
+          {error}
+        </div>
+      )}
 
       <Summary items={items} />
 
       <SectionHeader title="Awaiting confirmation" tone="green" />
-      <div className="overflow-auto">
-        <table className="min-w-full border border-slate-200 rounded">
-          <thead className="bg-slate-50">
+      <div className={tableWrap}>
+        <table className={tableClass}>
+          <thead className={theadClass}>
             <tr>
-              <th className="text-left px-2 py-2">Name</th>
-              <th className="text-left px-2 py-2">Company</th>
-              <th className="text-left px-2 py-2">Phone</th>
-              <th className="text-left px-2 py-2">Areas</th>
-              <th className="text-left px-2 py-2">Signed in</th>
-              <th className="text-left px-2 py-2">Fob #</th>
-              <th className="text-left px-2 py-2"></th>
+              <th className={thClass}>Name</th>
+              <th className={thClass}>Company</th>
+              <th className={thClass}>Phone</th>
+              <th className={thClass}>Areas</th>
+              <th className={thClass}>Signed in</th>
+              <th className={thClass}>Fob #</th>
+              <th className={thClass}></th>
             </tr>
           </thead>
           <tbody>
             {awaiting.length === 0 && (
               <tr>
-                <td className="px-2 py-3 text-slate-600" colSpan={7}>
+                <td className={mutedNone} colSpan={7}>
                   None
                 </td>
               </tr>
@@ -590,27 +679,27 @@ export default function Dashboard() {
       </div>
 
       <SectionHeader title="Signed in contractors/visitors" tone="blue" />
-      <div className="overflow-auto">
-        <table className="min-w-full border border-slate-200 rounded">
-          <thead className="bg-slate-50">
+      <div className={tableWrap}>
+        <table className={tableClass}>
+          <thead className={theadClass}>
             <tr>
-              <th className="text-left px-2 py-2">Name</th>
-              <th className="text-left px-2 py-2">Company</th>
-              <th className="text-left px-2 py-2">Phone</th>
-              <th className="text-left px-2 py-2">Areas</th>
-              <th className="text-left px-2 py-2">Signed in</th>
-              <th className="text-left px-2 py-2">Fob #</th>
-              <th className="text-left px-2 py-2">Signed in by</th>
-              <th className="text-left px-2 py-2">Fob returned</th>
-              <th className="text-left px-2 py-2">Sign-out requested</th>
-              <th className="text-left px-2 py-2"></th>
-              {isAdmin && <th className="text-left px-2 py-2"></th>}
+              <th className={thClass}>Name</th>
+              <th className={thClass}>Company</th>
+              <th className={thClass}>Phone</th>
+              <th className={thClass}>Areas</th>
+              <th className={thClass}>Signed in</th>
+              <th className={thClass}>Fob #</th>
+              <th className={thClass}>Signed in by</th>
+              <th className={thClass}>Fob returned</th>
+              <th className={thClass}>Sign-out requested</th>
+              <th className={thClass}></th>
+              {isAdmin && <th className={thClass}></th>}
             </tr>
           </thead>
           <tbody>
             {onSite.length === 0 && (
               <tr>
-                <td className="px-2 py-3 text-slate-600" colSpan={isAdmin ? 11 : 10}>
+                <td className={mutedNone} colSpan={isAdmin ? 11 : 10}>
                   None
                 </td>
               </tr>
@@ -622,7 +711,7 @@ export default function Dashboard() {
               const fobIssued = hasFobIssued(i)
 
               // MORE VIBRANT RED when signout requested
-              const rowTone = i.signout_requested ? 'bg-rose-100/80' : ''
+              const rowTone = i.signout_requested ? 'bg-rose-100/80 dark:bg-rose-900/25' : ''
 
               return (
                 <tr key={i.id} className={rowTone}>
@@ -655,7 +744,9 @@ export default function Dashboard() {
                       disabled={!canSignOut}
                       title={!canSignOut ? reason : 'Confirm sign-out'}
                       className={`px-3 py-1 rounded whitespace-nowrap text-sm ${
-                        canSignOut ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                        canSignOut
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed'
                       }`}
                       style={{ fontSize: '0.80rem' }}
                     >
@@ -665,7 +756,10 @@ export default function Dashboard() {
 
                   {isAdmin && (
                     <td className="px-2 py-2 whitespace-nowrap">
-                      <button onClick={() => remove(i.id)} className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded">
+                      <button
+                        onClick={() => remove(i.id)}
+                        className="px-2 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
+                      >
                         Delete
                       </button>
                     </td>
@@ -684,38 +778,44 @@ export default function Dashboard() {
         </div>
 
         {!signedOutExpanded && signedOutAll.length > 5 && (
-          <button onClick={() => setSignedOutExpanded(true)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
+          <button
+            onClick={() => setSignedOutExpanded(true)}
+            className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
+          >
             Show more
           </button>
         )}
 
         {signedOutExpanded && (
-          <button onClick={() => setSignedOutExpanded(false)} className="px-3 py-1 text-sm bg-slate-200 rounded hover:bg-slate-300">
+          <button
+            onClick={() => setSignedOutExpanded(false)}
+            className="px-3 py-1 text-sm bg-slate-200 dark:bg-slate-800 dark:text-slate-100 rounded hover:bg-slate-300 dark:hover:bg-slate-700"
+          >
             Show less
           </button>
         )}
       </div>
 
       <div className="overflow-auto mt-2">
-        <table className="min-w-full border border-slate-200 rounded">
-          <thead className="bg-slate-50">
+        <table className={tableClass}>
+          <thead className={theadClass}>
             <tr>
-              <th className="text-left px-2 py-2">Name</th>
-              <th className="text-left px-2 py-2">Company</th>
-              <th className="text-left px-2 py-2">Phone</th>
-              <th className="text-left px-2 py-2">Areas</th>
-              <th className="text-left px-2 py-2">Fob #</th>
-              <th className="text-left px-2 py-2">Fob returned</th>
-              <th className="text-left px-2 py-2">Signed in</th>
-              <th className="text-left px-2 py-2">Signed out</th>
-              <th className="text-left px-2 py-2">Signed in by</th>
-              <th className="text-left px-2 py-2">Signed out by</th>
+              <th className={thClass}>Name</th>
+              <th className={thClass}>Company</th>
+              <th className={thClass}>Phone</th>
+              <th className={thClass}>Areas</th>
+              <th className={thClass}>Fob #</th>
+              <th className={thClass}>Fob returned</th>
+              <th className={thClass}>Signed in</th>
+              <th className={thClass}>Signed out</th>
+              <th className={thClass}>Signed in by</th>
+              <th className={thClass}>Signed out by</th>
             </tr>
           </thead>
           <tbody>
             {signedOut.length === 0 && (
               <tr>
-                <td className="px-2 py-3 text-slate-600" colSpan={10}>
+                <td className={mutedNone} colSpan={10}>
                   None
                 </td>
               </tr>
@@ -741,8 +841,9 @@ export default function Dashboard() {
         </table>
       </div>
 
-      <div className="mt-3 text-xs text-slate-600">Signed-out records are kept for up to 30 days and then automatically removed.</div>
+      <div className="mt-3 text-xs text-slate-600 dark:text-slate-300">
+        Signed-out records are kept for up to 30 days and then automatically removed.
+      </div>
     </div>
   )
 }
-``
