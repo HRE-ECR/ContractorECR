@@ -103,7 +103,7 @@ export default function SignOut() {
                 </div>
                 <p className="text-slate-800 leading-relaxed">
                   Please ensure you have logged off <strong>Depot Protection System</strong> and{' '}
-                  <strong>Overhead Isolation</strong>. Hand back any Fobs or Padlocks issued{' '}
+                  <strong>Overhead Isolation</strong>. Hand back any <strong>Fobs</strong> or <strong>Padlocks</strong> issued{' '}
                   <span aria-hidden="true">⚠️</span>
                 </p>
               </div>
@@ -114,7 +114,7 @@ export default function SignOut() {
                 </div>
                 <p className="text-slate-700 leading-relaxed">
                   <span className="font-semibold">Any questions or concerns</span> please contact the
-                  on duty manager.
+                  on duty manager or a team leader.
                 </p>
               </div>
             </div>
