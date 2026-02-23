@@ -25,9 +25,7 @@ const AREA_SHORT_MAP = {
   '3CL': '3CL',
   '4CL': '4CL',
 }
-
 const SHORT_ORDER = ['M1', 'M2', 'Insp', 'RShed', '1CL', '2CL', '3CL', '4CL']
-
 const STANDARD_DB_AREAS = [
   'Maint-1',
   'Maint-2',
@@ -75,7 +73,6 @@ function areasTextForTables(areas) {
   const arr = Array.isArray(areas) ? areas : []
   const standards = new Set()
   const others = new Set()
-
   for (const a of arr) {
     const std = shortStandardArea(a)
     if (std) {
@@ -85,13 +82,10 @@ function areasTextForTables(areas) {
     const oth = extractOtherText(a)
     if (oth) others.add(oth)
   }
-
   const stdList = Array.from(standards)
   stdList.sort((x, y) => SHORT_ORDER.indexOf(x) - SHORT_ORDER.indexOf(y))
-
   const otherList = Array.from(others)
   otherList.sort((x, y) => x.localeCompare(y))
-
   return [...stdList, ...otherList].join(', ')
 }
 
@@ -123,17 +117,15 @@ function formatStaffEmail(email) {
   if (!email) return ''
   const e = String(email).trim()
   if (!e) return ''
-
   const local = e.split('@')[0] || ''
   if (!local) return ''
-
   const parts = local.split('.').filter(Boolean)
   const firstPart = parts[0] || local
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
-
   const initial = (firstPart[0] || '').toUpperCase()
-  const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
-
+  const surname =
+    ((lastPart[0] || '').toUpperCase()) +
+    ((lastPart.slice(1) || '').toLowerCase())
   if (!initial || !surname) return local
   return `${initial}.${surname}`
 }
@@ -199,7 +191,8 @@ async function getAppRoleFromAuth() {
     const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    const accessToken = parsed?.currentSession?.access_token || parsed?.access_token || null
+    const accessToken =
+      parsed?.currentSession?.access_token || parsed?.access_token || null
     const payload = decodeJwtPayload(accessToken)
     const role = payload?.app_metadata?.app_role || payload?.user_role || null
     if (role) return role
@@ -231,14 +224,11 @@ function SectionHeader({ title, tone = 'slate' }) {
 // -----------------------------
 function Summary({ items }) {
   const onSite = items.filter((i) => i.status !== 'signed_out' && !i.signed_out_at)
-
   const counts = {}
   SHORT_ORDER.forEach((k) => {
     counts[k] = 0
   })
-
   let otherCount = 0
-
   onSite.forEach((i) => {
     const areas = Array.isArray(i.areas) ? i.areas : []
     areas.forEach((a) => {
@@ -250,7 +240,6 @@ function Summary({ items }) {
 
   const tileClass =
     'border border-[#0b3a5a] bg-[#0b3a5a] text-white rounded-lg px-3 py-2 shadow-sm flex items-center justify-between gap-3 min-w-[86px]'
-
   const tile = (label, value) => (
     <div className={tileClass} key={label}>
       <div className="text-xs font-semibold tracking-wide opacity-90">{label}</div>
@@ -276,16 +265,14 @@ function Summary({ items }) {
 // -----------------------------
 // Awaiting Row (VIBRANT GREEN highlight only)
 // -----------------------------
-function AwaitingRow({ item, onConfirm, darkMode }) {
+function AwaitingRow({ item, onConfirm, onDeclineClick, darkMode }) {
   const [fob, setFob] = React.useState('')
 
   // Highlight only: row background + left border line on first cell
   const rowBg = darkMode ? 'bg-emerald-500/25' : 'bg-emerald-200'
   const accent = darkMode ? 'border-l-4 border-emerald-400' : 'border-l-4 border-emerald-700'
-
   const textMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
   const textSoft = darkMode ? 'text-emerald-50/90' : 'text-emerald-950/90'
-
   const inputCls = darkMode
     ? 'border rounded px-2 py-1 w-28 bg-slate-900 text-slate-100 border-slate-600'
     : 'border rounded px-2 py-1 w-28 bg-white'
@@ -310,12 +297,24 @@ function AwaitingRow({ item, onConfirm, darkMode }) {
         />
       </td>
       <td className="px-2 py-2 whitespace-nowrap">
-        <button
-          onClick={() => onConfirm(item.id, fob)}
-          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-        >
-          Confirm sign-in
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onConfirm(item.id, fob)}
+            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+          >
+            Confirm sign-in
+          </button>
+
+          {/* X emoji button (space saver) */}
+          <button
+            onClick={() => onDeclineClick(item)}
+            className="px-2 py-1 bg-rose-600 text-white rounded hover:bg-rose-700"
+            title="Decline sign-in request"
+            aria-label="Decline sign-in request"
+          >
+            ❌
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -332,6 +331,14 @@ export default function Dashboard() {
   const [appRole, setAppRole] = React.useState(null)
   const [error, setError] = React.useState('')
   const [signedOutExpanded, setSignedOutExpanded] = React.useState(false)
+
+  // Decline modal state
+  const [declineModal, setDeclineModal] = React.useState({
+    open: false,
+    item: null,
+    checked: false,
+    submitting: false,
+  })
 
   // Dark mode (works without Tailwind dark config)
   const [darkMode, setDarkMode] = React.useState(() => {
@@ -354,6 +361,8 @@ export default function Dashboard() {
     setDarkMode((v) => !v)
   }
 
+  const canDelete = appRole === 'admin' || appRole === 'teamleader'
+
   function hasFobIssued(item) {
     const v = (item?.fob_number || '').toString().trim()
     return v.length > 0
@@ -362,12 +371,10 @@ export default function Dashboard() {
   function canConfirmSignOut(item) {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
-
     if (isAdmin) {
       if (fobIssued) return !!item.fob_returned
       return !!item.signout_requested
     }
-
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -386,7 +393,6 @@ export default function Dashboard() {
 
   async function load() {
     setError('')
-
     const role = await getAppRoleFromAuth()
     setAppRole(role)
     setIsAdmin(role === 'admin')
@@ -422,8 +428,8 @@ export default function Dashboard() {
 
   React.useEffect(() => {
     if (appRole === 'Display') return
-
     let debounceTimer = null
+
     const channel = supabase
       .channel('contractors-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contractors' }, () => {
@@ -463,7 +469,6 @@ export default function Dashboard() {
         const existing = normalizeFob(i.fob_number)
         return existing && existing === entered
       })
-
       if (inUse) {
         alert('Fob # already in use, please select another')
         return
@@ -486,11 +491,78 @@ export default function Dashboard() {
       sign_in_confirmed_by: uid,
       sign_in_confirmed_by_email: email,
       fob_number: finalFob ? finalFob : null,
+
+      // if previously declined, clear markers
+      sign_in_declined_at: null,
+      sign_in_declined_by: null,
+      sign_in_declined_by_email: null,
     }
 
     const { error } = await supabase.from('contractors').update(updatePayload).eq('id', itemId)
     if (error) alert(error.message)
     else load()
+  }
+
+  // Open decline modal
+  function openDeclineModal(item) {
+    setDeclineModal({
+      open: true,
+      item,
+      checked: false,
+      submitting: false,
+    })
+  }
+
+  function closeDeclineModal() {
+    setDeclineModal({
+      open: false,
+      item: null,
+      checked: false,
+      submitting: false,
+    })
+  }
+
+  // Decline sign-in request (keep record, mark who declined, remove from pending list)
+  async function declineSignIn(item) {
+    if (!item) return
+    if (appRole === 'Display') return
+
+    setDeclineModal((s) => ({ ...s, submitting: true }))
+
+    const { data: userData } = await supabase.auth.getUser()
+    const uid = userData?.user?.id || null
+    const email = userData?.user?.email || null
+    const nowIso = new Date().toISOString()
+
+    // Clean-up style: mark declined, clear any confirm/signout/fob flags
+    const updatePayload = {
+      status: 'declined',
+      sign_in_declined_at: nowIso,
+      sign_in_declined_by: uid,
+      sign_in_declined_by_email: email,
+
+      // ensure it no longer behaves like an active onsite record
+      sign_in_confirmed_at: null,
+      sign_in_confirmed_by: null,
+      sign_in_confirmed_by_email: null,
+      fob_number: null,
+      fob_returned: false,
+      signout_requested: false,
+      signed_out_at: null,
+      signed_out_by: null,
+      signed_out_by_email: null,
+    }
+
+    const { error } = await supabase.from('contractors').update(updatePayload).eq('id', item.id)
+
+    if (error) {
+      setDeclineModal((s) => ({ ...s, submitting: false }))
+      alert(error.message)
+      return
+    }
+
+    closeDeclineModal()
+    load()
   }
 
   async function confirmSignOut(item) {
@@ -533,7 +605,7 @@ export default function Dashboard() {
   }
 
   async function remove(itemId) {
-    if (!isAdmin) return
+    if (!canDelete) return
     if (!confirm('Delete this record? This cannot be undone.')) return
     const { error } = await supabase.from('contractors').delete().eq('id', itemId)
     if (error) alert(error.message)
@@ -543,6 +615,7 @@ export default function Dashboard() {
   function exportAllTables() {
     const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
     const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
+    const declined = items.filter((i) => i.status === 'declined')
 
     const fourDaysAgo = Date.now() - 4 * 24 * 60 * 60 * 1000
     const signedOut = items
@@ -558,19 +631,27 @@ export default function Dashboard() {
       phone: i.phone,
       areas: areasTextForTables(i.areas),
       status: i.status,
+
       fob_number: i.fob_number || '',
       fob_returned: hasFobIssued(i) ? (i.fob_returned ? 'true' : 'false') : 'N/A',
       signout_requested: i.signout_requested ? 'true' : 'false',
+
       signed_in_at: i.signed_in_at || '',
       sign_in_confirmed_at: i.sign_in_confirmed_at || '',
       signed_out_at: i.signed_out_at || '',
+
       sign_in_confirmed_by: formatStaffEmail(i.sign_in_confirmed_by_email || ''),
       signed_out_by: formatStaffEmail(i.signed_out_by_email || ''),
+
+      // Decline audit fields
+      sign_in_declined_at: i.sign_in_declined_at || '',
+      sign_in_declined_by: formatStaffEmail(i.sign_in_declined_by_email || ''),
     })
 
     const rows = [
       ...awaiting.map((i) => toRow(i, 'awaiting_confirmation')),
       ...onSite.map((i) => toRow(i, 'on_site')),
+      ...declined.map((i) => toRow(i, 'declined_requests')),
       ...signedOut.map((i) => toRow(i, 'signed_out')),
     ]
 
@@ -621,12 +702,10 @@ export default function Dashboard() {
   const now = Date.now()
   const cutoffMs = signedOutExpanded ? 4 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000
   const cutoff = now - cutoffMs
-
   const signedOutAll = items
     .filter((i) => i.signed_out_at)
     .filter((i) => new Date(i.signed_out_at).getTime() >= cutoff)
     .sort((a, b) => new Date(b.signed_out_at).getTime() - new Date(a.signed_out_at).getTime())
-
   const signedOut = signedOutAll.slice(0, signedOutExpanded ? 30 : 5)
 
   const tableWrap = 'overflow-auto'
@@ -694,8 +773,15 @@ export default function Dashboard() {
                 </td>
               </tr>
             )}
+
             {awaiting.map((i) => (
-              <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} darkMode={darkMode} />
+              <AwaitingRow
+                key={i.id}
+                item={i}
+                onConfirm={confirmSignIn}
+                onDeclineClick={openDeclineModal}
+                darkMode={darkMode}
+              />
             ))}
           </tbody>
         </table>
@@ -716,13 +802,13 @@ export default function Dashboard() {
               <th className={thClass}>Fob returned</th>
               <th className={thClass}>Sign-out requested</th>
               <th className={thClass}></th>
-              {isAdmin && <th className={thClass}></th>}
+              {canDelete && <th className={thClass}></th>}
             </tr>
           </thead>
           <tbody>
             {onSite.length === 0 && (
               <tr>
-                <td className={`px-2 py-3 ${mutedText}`} colSpan={isAdmin ? 11 : 10}>
+                <td className={`px-2 py-3 ${mutedText}`} colSpan={canDelete ? 11 : 10}>
                   None
                 </td>
               </tr>
@@ -737,7 +823,6 @@ export default function Dashboard() {
               const rowTone = i.signout_requested
                 ? (darkMode ? 'bg-rose-500/25' : 'bg-rose-200')
                 : ''
-
               const accent = i.signout_requested
                 ? (darkMode ? 'border-l-4 border-rose-400' : 'border-l-4 border-rose-700')
                 : ''
@@ -754,7 +839,6 @@ export default function Dashboard() {
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
 
-                  {/* Fob returned: show N/A if no fob issued */}
                   <td className="px-2 py-2 whitespace-nowrap">
                     {!fobIssued ? (
                       <span className={mutedText}>N/A</span>
@@ -786,7 +870,7 @@ export default function Dashboard() {
                     </button>
                   </td>
 
-                  {isAdmin && (
+                  {canDelete && (
                     <td className="px-2 py-2 whitespace-nowrap">
                       <button
                         onClick={() => remove(i.id)}
@@ -864,11 +948,9 @@ export default function Dashboard() {
                   <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
                   <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-
                   <td className="px-2 py-2 whitespace-nowrap">
-                    {!fobIssued ? <span className={mutedText}>N/A</span> : i.fob_returned ? 'Yes' : 'No'}
+                    {!fobIssued ? <span className={mutedText}>N/A</span> : (i.fob_returned ? 'Yes' : 'No')}
                   </td>
-
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
@@ -883,6 +965,63 @@ export default function Dashboard() {
       <div className={`mt-3 text-xs ${mutedText}`}>
         Signed-out records are kept for up to 30 days and then automatically removed.
       </div>
+
+      {/* Decline confirmation modal */}
+      {declineModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={closeDeclineModal}
+            aria-hidden="true"
+          />
+          <div className={`relative w-full max-w-md mx-4 rounded-lg border ${cardBorder} ${darkMode ? 'bg-slate-900' : 'bg-white'} shadow-lg`}>
+            <div className={`px-4 py-3 border-b ${cardBorder}`}>
+              <div className="text-sm font-semibold">Decline sign-in request</div>
+            </div>
+
+            <div className="px-4 py-4 text-sm">
+              <div className="mb-3">
+                You are about to decline{' '}
+                <span className="font-semibold">
+                  {declineModal.item?.first_name} {declineModal.item?.surname}
+                </span>
+                .
+              </div>
+
+              <label className="flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={declineModal.checked}
+                  onChange={(e) => setDeclineModal((s) => ({ ...s, checked: e.target.checked }))}
+                />
+                <span>Yes</span>
+              </label>
+            </div>
+
+            <div className={`px-4 py-3 border-t ${cardBorder} flex items-center justify-end gap-2`}>
+              <button
+                onClick={closeDeclineModal}
+                className={`px-3 py-1 text-sm rounded ${btnLight}`}
+                disabled={declineModal.submitting}
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={() => declineSignIn(declineModal.item)}
+                className={`px-3 py-1 text-sm rounded text-white ${
+                  declineModal.checked && !declineModal.submitting
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-rose-600/50 cursor-not-allowed'
+                }`}
+                disabled={!declineModal.checked || declineModal.submitting}
+              >
+                {declineModal.submitting ? 'Working...' : 'OK'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
