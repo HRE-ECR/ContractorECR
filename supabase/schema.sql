@@ -1,5 +1,5 @@
 -- ============================================
--- ContractorECR schema.sql (clean)  [UPDATED]
+-- ContractorECR schema.sql (clean)
 -- Includes:
 -- - profiles + roles (New_Teamleader/teamleader/admin/Display)
 -- - contractors table (areas text[])
@@ -15,43 +15,31 @@ create extension if not exists pgcrypto;
 -- Enum types
 DO $$
 BEGIN
-  -- If status_type exists, ensure 'declined' is present
-  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_type') THEN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM pg_enum e
-      JOIN pg_type t ON t.oid = e.enumtypid
-      WHERE t.typname = 'status_type'
-        AND e.enumlabel = 'declined'
-    ) THEN
-      ALTER TYPE public.status_type ADD VALUE 'declined';
-    END IF;
-  ELSE
-    -- Fresh create (includes declined)
-    CREATE TYPE public.status_type AS ENUM ('pending','confirmed','signed_out','declined');
-  END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_type') THEN
+  CREATE TYPE public.status_type AS ENUM ('pending','confirmed','signed_out');
+ END IF;
 END $$;
 
 -- =========================
 -- Profiles
 -- =========================
 create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  email text unique,
-  role text not null default 'New_Teamleader',
-  created_at timestamptz not null default now()
+ id uuid primary key references auth.users(id) on delete cascade,
+ email text unique,
+ role text not null default 'New_Teamleader',
+ created_at timestamptz not null default now()
 );
 
 -- Ensure default + allowed roles
 alter table public.profiles
-  alter column role set default 'New_Teamleader';
+ alter column role set default 'New_Teamleader';
 
 alter table public.profiles
-  drop constraint if exists profiles_role_check;
+ drop constraint if exists profiles_role_check;
 
 alter table public.profiles
-  add constraint profiles_role_check
-  check (role in ('New_Teamleader','teamleader','admin','Display'));
+ add constraint profiles_role_check
+ check (role in ('New_Teamleader','teamleader','admin','Display'));
 
 -- Create profile on new user (default role = New_Teamleader)
 create or replace function public.handle_new_user()
@@ -61,84 +49,73 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, role)
-  values (new.id, new.email, 'New_Teamleader')
-  on conflict do nothing;
-  return new;
+ insert into public.profiles (id, email, role)
+ values (new.id, new.email, 'New_Teamleader')
+ on conflict do nothing;
+ return new;
 end;
 $$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
+ after insert on auth.users
+ for each row execute function public.handle_new_user();
 
 -- =========================
 -- Contractors
 -- =========================
 create table if not exists public.contractors (
-  id uuid primary key default gen_random_uuid(),
-  first_name text not null,
-  surname text not null,
-  company text not null,
-  phone text not null,
-  areas text[] not null,
-
-  status public.status_type not null default 'pending',
-
-  fob_number text,
-  fob_returned boolean not null default false,
-  signout_requested boolean not null default false,
-
-  signed_in_at timestamptz not null default now(),
-
-  sign_in_confirmed_at timestamptz,
-  sign_in_confirmed_by uuid,
-  sign_in_confirmed_by_email text,
-
-  -- NEW: decline audit fields
-  sign_in_declined_at timestamptz,
-  sign_in_declined_by uuid,
-  sign_in_declined_by_email text,
-
-  signed_out_at timestamptz,
-  signed_out_by uuid,
-  signed_out_by_email text,
-
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+ id uuid primary key default gen_random_uuid(),
+ first_name text not null,
+ surname text not null,
+ company text not null,
+ phone text not null,
+ areas text[] not null,
+ status public.status_type not null default 'pending',
+ fob_number text,
+ fob_returned boolean not null default false,
+ signout_requested boolean not null default false,
+ signed_in_at timestamptz not null default now(),
+ sign_in_confirmed_at timestamptz,
+ sign_in_confirmed_by uuid,
+ sign_in_confirmed_by_email text,
+ signed_out_at timestamptz,
+ signed_out_by uuid,
+ signed_out_by_email text,
+ created_at timestamptz not null default now(),
+ updated_at timestamptz not null default now()
 );
 
 -- If you previously had areas as enum array (_area_type), safely convert to text[]
 DO $$
 BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'contractors'
-      AND column_name = 'areas'
-      AND udt_name = '_area_type'
-  ) THEN
-    ALTER TABLE public.contractors
-      ALTER COLUMN areas TYPE text[]
-      USING (areas::text[]);
-  END IF;
+ IF EXISTS (
+  SELECT 1
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+  AND table_name = 'contractors'
+  AND column_name = 'areas'
+  AND udt_name = '_area_type'
+ ) THEN
+  ALTER TABLE public.contractors
+  ALTER COLUMN areas TYPE text[]
+  USING (areas::text[]);
+ END IF;
 END $$;
 
 -- Ensure at least one area selected
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'contractors_at_least_one_area'
-      AND conrelid = 'public.contractors'::regclass
-  ) THEN
-    ALTER TABLE public.contractors
-      ADD CONSTRAINT contractors_at_least_one_area
-      CHECK (array_length(areas, 1) >= 1);
-  END IF;
+ IF NOT EXISTS (
+  SELECT 1
+  FROM pg_constraint
+  WHERE conname = 'contractors_at_least_one_area'
+  AND conrelid = 'public.contractors'::regclass
+ ) THEN
+  ALTER TABLE public.contractors
+  ADD CONSTRAINT contractors_at_least_one_area
+  CHECK (array_length(areas, 1) >= 1);
+ END IF;
 END $$;
 
 -- updated_at trigger
@@ -147,15 +124,15 @@ returns trigger
 language plpgsql
 as $$
 begin
-  new.updated_at = now();
-  return new;
+ new.updated_at = now();
+ return new;
 end;
 $$;
 
 drop trigger if exists set_timestamp on public.contractors;
 create trigger set_timestamp
-  before update on public.contractors
-  for each row execute function public.set_updated_at();
+ before update on public.contractors
+ for each row execute function public.set_updated_at();
 
 -- Indexes
 create index if not exists contractors_phone_open_idx on public.contractors (phone, signed_out_at);
@@ -173,16 +150,15 @@ security definer
 set search_path = public
 as $$
 declare
-  v_count integer;
+ v_count integer;
 begin
-  update public.contractors
-  set signout_requested = true
-  where signed_out_at is null
-    and lower(first_name) = lower(trim(p_first))
-    and phone = trim(p_phone);
-
-  get diagnostics v_count = row_count;
-  return v_count;
+ update public.contractors
+ set signout_requested = true
+ where signed_out_at is null
+ and lower(first_name) = lower(trim(p_first))
+ and phone = trim(p_phone);
+ get diagnostics v_count = row_count;
+ return v_count;
 end;
 $$;
 
@@ -197,10 +173,10 @@ returns boolean
 language sql
 stable
 as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'admin'
-  );
+ select exists (
+  select 1 from public.profiles
+  where id = auth.uid() and role = 'admin'
+ );
 $$;
 
 create or replace function public.is_teamleader()
@@ -208,10 +184,10 @@ returns boolean
 language sql
 stable
 as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role in ('teamleader','admin')
-  );
+ select exists (
+  select 1 from public.profiles
+  where id = auth.uid() and role in ('teamleader','admin')
+ );
 $$;
 
 create or replace function public.is_display()
@@ -219,10 +195,10 @@ returns boolean
 language sql
 stable
 as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'Display'
-  );
+ select exists (
+  select 1 from public.profiles
+  where id = auth.uid() and role = 'Display'
+ );
 $$;
 
 -- ============================================================
@@ -236,39 +212,38 @@ security definer
 set search_path = public
 as $$
 declare
-  claims jsonb := coalesce(event->'claims', '{}'::jsonb);
-  uid uuid;
-  r text;
+ claims jsonb := coalesce(event->'claims', '{}'::jsonb);
+ uid uuid;
+ r text;
 begin
-  -- Safely parse user_id
-  begin
-    uid := (event->>'user_id')::uuid;
-  exception when others then
-    return jsonb_build_object('claims', claims);
-  end;
-
-  -- Fetch role
-  select role into r
-  from public.profiles
-  where id = uid;
-
-  if r is null then
-    r := 'New_Teamleader';
-  end if;
-
-  -- Set claim: app_metadata.app_role
-  claims := jsonb_set(
-    claims,
-    '{app_metadata,app_role}',
-    to_jsonb(r),
-    true
-  );
-
+ -- Safely parse user_id
+ begin
+  uid := (event->>'user_id')::uuid;
+ exception when others then
   return jsonb_build_object('claims', claims);
+ end;
 
+ -- Fetch role
+ select role into r
+ from public.profiles
+ where id = uid;
+
+ if r is null then
+  r := 'New_Teamleader';
+ end if;
+
+ -- Set claim: app_metadata.app_role
+ claims := jsonb_set(
+  claims,
+  '{app_metadata,app_role}',
+  to_jsonb(r),
+  true
+ );
+
+ return jsonb_build_object('claims', claims);
 exception when others then
-  -- Fail-safe: never block auth if unexpected errors occur
-  return jsonb_build_object('claims', claims);
+ -- Fail-safe: never block auth if unexpected errors occur
+ return jsonb_build_object('claims', claims);
 end;
 $$;
 
@@ -322,19 +297,29 @@ for update
 to authenticated
 using (public.is_teamleader());
 
--- Contractors: Teamleaders + Admin can delete (UPDATED)
+-- ✅ DELETE LOCKDOWN:
+-- Only allow delete for pending requests (Awaiting confirmation).
+-- Once confirmed/signed-in, records cannot be deleted via the app (even by admin).
 drop policy if exists "Admins can delete contractors" on public.contractors;
-drop policy if exists "Teamleaders can delete contractors" on public.contractors;
+drop policy if exists "Teamleaders can delete pending contractors" on public.contractors;
+drop policy if exists "Privileged can delete pending contractors" on public.contractors;
 
-create policy "Teamleaders can delete contractors"
+create policy "Privileged can delete pending contractors"
 on public.contractors
 for delete
 to authenticated
-using (public.is_teamleader());
+using (
+  public.is_teamleader()
+  and status = 'pending'
+  and sign_in_confirmed_at is null
+  and signed_out_at is null
+);
+
+-- ✅ Ensure authenticated has delete privilege (RLS still applies)
+grant delete on table public.contractors to authenticated;
 
 -- =========================
--- Cleanup function (RETENTION: 30 DAYS) [UPDATED]
--- Uses signed_out_at OR sign_in_declined_at OR signed_in_at for retention timing.
+-- Cleanup function (RETENTION: 30 DAYS)
 -- =========================
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 30)
 returns void
@@ -343,9 +328,8 @@ security definer
 set search_path = public
 as $$
 begin
-  delete from public.contractors c
-  where coalesce(c.signed_out_at, c.sign_in_declined_at, c.signed_in_at)
-        < now() - make_interval(days => days_to_keep);
+ delete from public.contractors c
+ where coalesce(c.signed_out_at, c.signed_in_at) < now() - make_interval(days => days_to_keep);
 end;
 $$;
 
@@ -357,20 +341,19 @@ grant execute on function public.cleanup_old_contractor_data(integer) to service
 -- =========================
 DO $$
 BEGIN
-  IF EXISTS (select 1 from pg_extension where extname = 'pg_cron') THEN
-    BEGIN
-      IF NOT EXISTS (select 1 from cron.job where jobname = 'cleanup_contractors_daily') THEN
-        PERFORM cron.schedule(
-          'cleanup_contractors_daily',
-          '0 3 * * *',
-          $job$select public.cleanup_old_contractor_data(30);$job$
-        );
-      END IF;
-    EXCEPTION WHEN undefined_table THEN
-      -- cron schema/table not present (pg_cron not available / not exposed), ignore safely
-      NULL;
-    END;
-  END IF;
+ IF EXISTS (select 1 from pg_extension where extname = 'pg_cron') THEN
+  BEGIN
+   IF NOT EXISTS (select 1 from cron.job where jobname = 'cleanup_contractors_daily') THEN
+    PERFORM cron.schedule(
+     'cleanup_contractors_daily',
+     '0 3 * * *',
+     $job$select public.cleanup_old_contractor_data(30);$job$
+    );
+   END IF;
+  EXCEPTION WHEN undefined_table THEN
+   NULL;
+  END;
+ END IF;
 END $$;
 
 -- =========================
@@ -378,18 +361,18 @@ END $$;
 -- =========================
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_publication p
-    JOIN pg_publication_rel pr ON pr.prpubid = p.oid
-    JOIN pg_class c ON c.oid = pr.prrelid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE p.pubname = 'supabase_realtime'
-      AND n.nspname = 'public'
-      AND c.relname = 'contractors'
-  ) THEN
-    EXECUTE 'alter publication supabase_realtime add table public.contractors';
-  END IF;
+ IF NOT EXISTS (
+  SELECT 1
+  FROM pg_publication p
+  JOIN pg_publication_rel pr ON pr.prpubid = p.oid
+  JOIN pg_class c ON c.oid = pr.prrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE p.pubname = 'supabase_realtime'
+  AND n.nspname = 'public'
+  AND c.relname = 'contractors'
+ ) THEN
+  EXECUTE 'alter publication supabase_realtime add table public.contractors';
+ END IF;
 END $$;
 
 -- Recommended for better UPDATE payloads for realtime listeners
