@@ -1,5 +1,5 @@
 -- ============================================
--- ContractorECR schema.sql (clean)
+-- ContractorECR schema.sql (clean)  [UPDATED]
 -- Includes:
 -- - profiles + roles (New_Teamleader/teamleader/admin/Display)
 -- - contractors table (areas text[])
@@ -15,8 +15,20 @@ create extension if not exists pgcrypto;
 -- Enum types
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_type') THEN
-    CREATE TYPE public.status_type AS ENUM ('pending','confirmed','signed_out');
+  -- If status_type exists, ensure 'declined' is present
+  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'status_type') THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_enum e
+      JOIN pg_type t ON t.oid = e.enumtypid
+      WHERE t.typname = 'status_type'
+        AND e.enumlabel = 'declined'
+    ) THEN
+      ALTER TYPE public.status_type ADD VALUE 'declined';
+    END IF;
+  ELSE
+    -- Fresh create (includes declined)
+    CREATE TYPE public.status_type AS ENUM ('pending','confirmed','signed_out','declined');
   END IF;
 END $$;
 
@@ -71,17 +83,28 @@ create table if not exists public.contractors (
   company text not null,
   phone text not null,
   areas text[] not null,
+
   status public.status_type not null default 'pending',
+
   fob_number text,
   fob_returned boolean not null default false,
   signout_requested boolean not null default false,
+
   signed_in_at timestamptz not null default now(),
+
   sign_in_confirmed_at timestamptz,
   sign_in_confirmed_by uuid,
   sign_in_confirmed_by_email text,
+
+  -- NEW: decline audit fields
+  sign_in_declined_at timestamptz,
+  sign_in_declined_by uuid,
+  sign_in_declined_by_email text,
+
   signed_out_at timestamptz,
   signed_out_by uuid,
   signed_out_by_email text,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -299,16 +322,19 @@ for update
 to authenticated
 using (public.is_teamleader());
 
--- Contractors: only admins can delete
+-- Contractors: Teamleaders + Admin can delete (UPDATED)
 drop policy if exists "Admins can delete contractors" on public.contractors;
-create policy "Admins can delete contractors"
+drop policy if exists "Teamleaders can delete contractors" on public.contractors;
+
+create policy "Teamleaders can delete contractors"
 on public.contractors
 for delete
 to authenticated
-using (public.is_admin());
+using (public.is_teamleader());
 
 -- =========================
--- Cleanup function (RETENTION: 30 DAYS)
+-- Cleanup function (RETENTION: 30 DAYS) [UPDATED]
+-- Uses signed_out_at OR sign_in_declined_at OR signed_in_at for retention timing.
 -- =========================
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 30)
 returns void
@@ -318,7 +344,8 @@ set search_path = public
 as $$
 begin
   delete from public.contractors c
-  where coalesce(c.signed_out_at, c.signed_in_at) < now() - make_interval(days => days_to_keep);
+  where coalesce(c.signed_out_at, c.sign_in_declined_at, c.signed_in_at)
+        < now() - make_interval(days => days_to_keep);
 end;
 $$;
 
