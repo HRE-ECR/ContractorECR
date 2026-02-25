@@ -135,7 +135,6 @@ function formatStaffEmail(email) {
   return `${initial}.${surname}`
 }
 
-// HTML escape for Excel-compatible export
 function htmlEscape(v) {
   if (v === null || v === undefined) return ''
   return String(v)
@@ -146,47 +145,92 @@ function htmlEscape(v) {
     .replace(/'/g, '&#39;')
 }
 
-// Excel-compatible .xls export (HTML workbook) + "auto width" via <col width="">
-function downloadXlsHtml(filename, rows) {
+function normalizeCellValue(v) {
+  if (v === null || v === undefined) return ''
+  return String(v).replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * ✅ Excel-compatible .xls (HTML workbook) with deterministic column widths
+ * - Uses <colgroup> + Excel mso width styles, which Excel is far more likely to honor than plain HTML width.
+ * - Approximates "auto-fit" by calculating width from the longest value in each column.
+ */
+function downloadXlsHtmlAutoWidth(filename, rows) {
   if (!rows || rows.length === 0) return
 
   const headers = Object.keys(rows[0])
 
-  // compute column widths (roughly in "characters")
+  // Calculate max text length per column
   const maxLens = headers.map((h) => String(h).length)
   for (const r of rows) {
     headers.forEach((h, idx) => {
-      const val = r[h]
-      const len = val === null || val === undefined ? 0 : String(val).length
+      const val = normalizeCellValue(r[h])
+      const len = val.length
       if (len > maxLens[idx]) maxLens[idx] = len
     })
   }
 
-  // clamp widths so they don't get silly
-  const widths = maxLens.map((n) => Math.max(10, Math.min(50, n + 2)))
+  // Convert characters -> points (rough approximation)
+  // Excel column width ≈ characters; in HTML we set points.
+  // 1 char ≈ 5.25pt is a reasonable approximation for Calibri 11.
+  const charToPt = (chars) => Math.round(chars * 5.25)
 
-  const colgroup = widths.map((w) => `<col width="${w}">`).join('')
+  // Clamp to keep it sensible
+  const minPt = 60
+  const maxPt = 320
 
-  const thead = `<tr>${headers.map((h) => `<th style="background:#FFF2CC;border:1px solid #ccc;padding:6px;text-align:left;">${htmlEscape(h)}</th>`).join('')}</tr>`
+  const colgroup = headers
+    .map((h, i) => {
+      const pt = Math.max(minPt, Math.min(maxPt, charToPt(maxLens[i] + 2)))
+      return `<col style="mso-width-source:userset;width:${pt}pt">`
+    })
+    .join('')
+
+  const thead = `<tr>${headers
+    .map(
+      (h) =>
+        `<th class="hdr">${htmlEscape(h)}</th>`
+    )
+    .join('')}</tr>`
 
   const tbody = rows
     .map((r) => {
       return `<tr>${headers
         .map((h) => {
-          const v = r[h]
-          return `<td style="border:1px solid #ccc;padding:6px;vertical-align:top;">${htmlEscape(v)}</td>`
+          const val = normalizeCellValue(r[h])
+          // Force text format to preserve phone numbers etc.
+          return `<td class="txt">${htmlEscape(val)}</td>`
         })
         .join('')}</tr>`
     })
     .join('')
 
+  // Excel/Office HTML wrapper + CSS
   const html = `<!DOCTYPE html>
-<html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:x="urn:schemas-microsoft-com:office:excel"
+      xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Type" content="application/vnd.ms-excel; charset=utf-8" />
 <style>
   body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
   table { border-collapse: collapse; }
+  .hdr {
+    background: #FFF2CC;
+    border: 1px solid #A6A6A6;
+    padding: 6px;
+    text-align: left;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .txt {
+    border: 1px solid #D0D0D0;
+    padding: 6px;
+    vertical-align: top;
+    mso-number-format: "\\@"; /* force text */
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -651,7 +695,7 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ NEW: 30-day Signed Out report ONLY (no table/id columns) + "Visitor log" filename + width formatting
+  // ✅ 30-day Signed Out report ONLY + "Visitor log" filename + improved width formatting
   function export30DayReport() {
     const end = new Date()
     const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -683,7 +727,7 @@ export default function Dashboard() {
 
     const period = `${formatDatePlainEnglishDate(start)} - ${formatDatePlainEnglishDate(end)}`
     const filename = `Visitor log ${period}.xls`
-    downloadXlsHtml(filename, rows)
+    downloadXlsHtmlAutoWidth(filename, rows)
   }
 
   // Theme classes
@@ -754,7 +798,7 @@ export default function Dashboard() {
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
 
-        {/* ✅ RENAMED BUTTON */}
+        {/* ✅ Renamed export button */}
         <button onClick={export30DayReport} className={`px-3 py-1 text-sm rounded ${btnLight}`}>
           30 day report
         </button>
@@ -803,14 +847,7 @@ export default function Dashboard() {
               </tr>
             )}
             {awaiting.map((i) => (
-              <AwaitingRow
-                key={i.id}
-                item={i}
-                onConfirm={confirmSignIn}
-                onDecline={openDecline}
-                canDecline={canDeclinePending}
-                darkMode={darkMode}
-              />
+              <AwaitingRow key={i.id} item={i} onConfirm={confirmSignIn} onDecline={openDecline} canDecline={canDeclinePending} darkMode={darkMode} />
             ))}
           </tbody>
         </table>
@@ -864,12 +901,7 @@ export default function Dashboard() {
                     {!fobIssued ? (
                       <span className={mutedText}>N/A</span>
                     ) : (
-                      <input
-                        type="checkbox"
-                        checked={!!i.fob_returned}
-                        onChange={(e) => setFobReturned(i.id, e.target.checked)}
-                        title="Tick when fob returned"
-                      />
+                      <input type="checkbox" checked={!!i.fob_returned} onChange={(e) => setFobReturned(i.id, e.target.checked)} title="Tick when fob returned" />
                     )}
                   </td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.signout_requested ? 'Yes' : 'No'}</td>
@@ -900,10 +932,7 @@ export default function Dashboard() {
         </div>
 
         {!signedOutExpanded && (
-          <button
-            onClick={() => setSignedOutExpanded(true)}
-            className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
-          >
+          <button onClick={() => setSignedOutExpanded(true)} className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800">
             Show more
           </button>
         )}
@@ -951,9 +980,7 @@ export default function Dashboard() {
                   <td className="px-2 py-2 whitespace-nowrap">{i.phone}</td>
                   <td className="px-2 py-2">{areasTextForTables(i.areas)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    {!fobIssued ? <span className={mutedText}>N/A</span> : i.fob_returned ? 'Yes' : 'No'}
-                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">{!fobIssued ? <span className={mutedText}>N/A</span> : i.fob_returned ? 'Yes' : 'No'}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_out_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
