@@ -1,4 +1,12 @@
-import React from 'react'import React from '_SHORT_MAP = {
+import React from 'react'
+import { supabase } from '../supabaseClient'
+
+const NL = String.fromCharCode(10)
+
+// -----------------------------
+// Area mapping (DB values -> short display)
+// -----------------------------
+const AREA_SHORT_MAP = {
   'Maint-1': 'M1',
   'Maint-2': 'M2',
   'Insp-shed': 'Insp',
@@ -822,7 +830,7 @@ export default function Dashboard() {
           {signedOutExpanded ? ', last 4 days' : ', last 12 hours'})
         </div>
 
-        {/* ✅ CHANGE: Always show "Show more" when not expanded */}
+        {/* CHANGE: Show "Show more" button ALWAYS when not expanded */}
         {!signedOutExpanded && (
           <button
             onClick={() => setSignedOutExpanded(true)}
@@ -889,16 +897,7 @@ export default function Dashboard() {
         </table>
       </div>
 
-      <div className={`mt-3 text-xs ${mutedText}`}>
-        Signed-out records are kept for up to 30 days and then automatically removed.
-      </div>
+      <div className={`mt-3 text-xs ${mutedText}`}>Signed-out records are kept for up to 30 days and then automatically removed.</div>
     </div>
   )
 }
-import { supabase } from '../supabaseClient'
-
-const NL = String.fromCharCode(10)
-
-// -----------------------------
-// Area mapping (DB values -> short display)
-// -----------------------------
