@@ -94,6 +94,19 @@ function formatDateDayMonthTime(value) {
   }
 }
 
+// ✅ Export-friendly format: "24 Feb 26 11:52"
+function formatDatePlainEnglish(value) {
+  if (!value) return ''
+  try {
+    const d = new Date(value)
+    const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
+    const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    return `${date} ${time}`
+  } catch {
+    return String(value)
+  }
+}
+
 function formatStaffEmail(email) {
   if (!email) return ''
   const e = String(email).trim()
@@ -600,9 +613,12 @@ export default function Dashboard() {
       fob_number: i.fob_number || '',
       fob_returned: hasFobIssued(i) ? (i.fob_returned ? 'true' : 'false') : 'N/A',
       signout_requested: i.signout_requested ? 'true' : 'false',
-      signed_in_at: i.signed_in_at || '',
-      sign_in_confirmed_at: i.sign_in_confirmed_at || '',
-      signed_out_at: i.signed_out_at || '',
+
+      // ✅ CHANGED: Export date/time as "24 Feb 26 11:52"
+      signed_in_at: i.signed_in_at ? formatDatePlainEnglish(i.signed_in_at) : '',
+      sign_in_confirmed_at: i.sign_in_confirmed_at ? formatDatePlainEnglish(i.sign_in_confirmed_at) : '',
+      signed_out_at: i.signed_out_at ? formatDatePlainEnglish(i.signed_out_at) : '',
+
       sign_in_confirmed_by: formatStaffEmail(i.sign_in_confirmed_by_email || ''),
       signed_out_by: formatStaffEmail(i.signed_out_by_email || ''),
     })
@@ -830,7 +846,7 @@ export default function Dashboard() {
           {signedOutExpanded ? ', last 4 days' : ', last 12 hours'})
         </div>
 
-        {/* CHANGE: Show "Show more" button ALWAYS when not expanded */}
+        {/* Keep: Show more always visible */}
         {!signedOutExpanded && (
           <button
             onClick={() => setSignedOutExpanded(true)}
