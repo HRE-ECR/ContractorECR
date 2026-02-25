@@ -94,7 +94,7 @@ function formatDateDayMonthTime(value) {
   }
 }
 
-// ✅ Export-friendly format: "24 Feb 26 11:52"
+// "24 Feb 26 11:52"
 function formatDatePlainEnglish(value) {
   if (!value) return ''
   try {
@@ -102,6 +102,17 @@ function formatDatePlainEnglish(value) {
     const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
     const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
     return `${date} ${time}`
+  } catch {
+    return String(value)
+  }
+}
+
+// "24 Feb 26"
+function formatDatePlainEnglishDate(value) {
+  if (!value) return ''
+  try {
+    const d = new Date(value)
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
   } catch {
     return String(value)
   }
@@ -124,19 +135,70 @@ function formatStaffEmail(email) {
   return `${initial}.${surname}`
 }
 
-function csvEscape(v) {
+// HTML escape for Excel-compatible export
+function htmlEscape(v) {
   if (v === null || v === undefined) return ''
-  const s = String(v)
-  if (s.includes('"') || s.includes(',') || s.includes(NL)) return '"' + s.replace(/"/g, '""') + '"'
-  return s
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
-function downloadCsv(filename, rows) {
+// Excel-compatible .xls export (HTML workbook) + "auto width" via <col width="">
+function downloadXlsHtml(filename, rows) {
   if (!rows || rows.length === 0) return
-  const header = Object.keys(rows[0]).join(',')
-  const lines = rows.map((r) => Object.values(r).map(csvEscape).join(','))
-  const csv = [header, ...lines].join(NL)
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+
+  const headers = Object.keys(rows[0])
+
+  // compute column widths (roughly in "characters")
+  const maxLens = headers.map((h) => String(h).length)
+  for (const r of rows) {
+    headers.forEach((h, idx) => {
+      const val = r[h]
+      const len = val === null || val === undefined ? 0 : String(val).length
+      if (len > maxLens[idx]) maxLens[idx] = len
+    })
+  }
+
+  // clamp widths so they don't get silly
+  const widths = maxLens.map((n) => Math.max(10, Math.min(50, n + 2)))
+
+  const colgroup = widths.map((w) => `<col width="${w}">`).join('')
+
+  const thead = `<tr>${headers.map((h) => `<th style="background:#FFF2CC;border:1px solid #ccc;padding:6px;text-align:left;">${htmlEscape(h)}</th>`).join('')}</tr>`
+
+  const tbody = rows
+    .map((r) => {
+      return `<tr>${headers
+        .map((h) => {
+          const v = r[h]
+          return `<td style="border:1px solid #ccc;padding:6px;vertical-align:top;">${htmlEscape(v)}</td>`
+        })
+        .join('')}</tr>`
+    })
+    .join('')
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+  table { border-collapse: collapse; }
+</style>
+</head>
+<body>
+<table>
+  <colgroup>${colgroup}</colgroup>
+  <thead>${thead}</thead>
+  <tbody>${tbody}</tbody>
+</table>
+</body>
+</html>`
+
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -338,7 +400,6 @@ function AwaitingRow({ item, onConfirm, onDecline, canDecline, darkMode }) {
           <button onClick={() => onConfirm(item.id, fob)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
             Confirm sign-in
           </button>
-          {/* Decline only exists here (Awaiting confirmation) */}
           <button
             onClick={() => onDecline(item)}
             disabled={!canDecline}
@@ -527,10 +588,8 @@ export default function Dashboard() {
     else load()
   }
 
-  // Decline modal open
   function openDecline(item) {
     if (!canDeclinePending) return
-    // extra safety: only pending can be declined
     if (item?.status !== 'pending') {
       alert('Only awaiting (pending) requests can be declined.')
       return
@@ -592,46 +651,39 @@ export default function Dashboard() {
     }
   }
 
-  function exportAllTables() {
-    const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
-    const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
+  // ✅ NEW: 30-day Signed Out report ONLY (no table/id columns) + "Visitor log" filename + width formatting
+  function export30DayReport() {
+    const end = new Date()
+    const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
 
-    const fourDaysAgo = Date.now() - 4 * 24 * 60 * 60 * 1000
-    const signedOut = items
+    const signedOut30 = items
       .filter((i) => i.signed_out_at)
-      .filter((i) => new Date(i.signed_out_at).getTime() >= fourDaysAgo)
+      .filter((i) => new Date(i.signed_out_at).getTime() >= start.getTime())
+      .sort((a, b) => new Date(b.signed_out_at).getTime() - new Date(a.signed_out_at).getTime())
 
-    const toRow = (i, tableName) => ({
-      table: tableName,
-      id: i.id,
+    const rows = signedOut30.map((i) => ({
       first_name: i.first_name,
       surname: i.surname,
       company: i.company,
       phone: i.phone,
       areas: areasTextForTables(i.areas),
-      status: i.status,
       fob_number: i.fob_number || '',
       fob_returned: hasFobIssued(i) ? (i.fob_returned ? 'true' : 'false') : 'N/A',
-      signout_requested: i.signout_requested ? 'true' : 'false',
-
-      // ✅ CHANGED: Export date/time as "24 Feb 26 11:52"
       signed_in_at: i.signed_in_at ? formatDatePlainEnglish(i.signed_in_at) : '',
       sign_in_confirmed_at: i.sign_in_confirmed_at ? formatDatePlainEnglish(i.sign_in_confirmed_at) : '',
       signed_out_at: i.signed_out_at ? formatDatePlainEnglish(i.signed_out_at) : '',
-
-      sign_in_confirmed_by: formatStaffEmail(i.sign_in_confirmed_by_email || ''),
+      signed_in_by: formatStaffEmail(i.sign_in_confirmed_by_email || ''),
       signed_out_by: formatStaffEmail(i.signed_out_by_email || ''),
-    })
+    }))
 
-    const rows = [
-      ...awaiting.map((i) => toRow(i, 'awaiting_confirmation')),
-      ...onSite.map((i) => toRow(i, 'on_site')),
-      ...signedOut.map((i) => toRow(i, 'signed_out')),
-    ]
+    if (rows.length === 0) {
+      alert('No signed-out records found for the last 30 days')
+      return
+    }
 
-    if (rows.length === 0) return alert('No data to export')
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-    downloadCsv(`contractors_export_${stamp}.csv`, rows)
+    const period = `${formatDatePlainEnglishDate(start)} - ${formatDatePlainEnglishDate(end)}`
+    const filename = `Visitor log ${period}.xls`
+    downloadXlsHtml(filename, rows)
   }
 
   // Theme classes
@@ -702,8 +754,9 @@ export default function Dashboard() {
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
 
-        <button onClick={exportAllTables} className={`px-3 py-1 text-sm rounded ${btnLight}`}>
-          Export all tables (CSV)
+        {/* ✅ RENAMED BUTTON */}
+        <button onClick={export30DayReport} className={`px-3 py-1 text-sm rounded ${btnLight}`}>
+          30 day report
         </button>
 
         <button
@@ -846,7 +899,6 @@ export default function Dashboard() {
           {signedOutExpanded ? ', last 4 days' : ', last 12 hours'})
         </div>
 
-        {/* Keep: Show more always visible */}
         {!signedOutExpanded && (
           <button
             onClick={() => setSignedOutExpanded(true)}
