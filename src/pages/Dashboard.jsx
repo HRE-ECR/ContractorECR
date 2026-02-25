@@ -1,12 +1,4 @@
-import React from 'react'
-import { supabase } from '../supabaseClient'
-
-const NL = String.fromCharCode(10)
-
-// -----------------------------
-// Area mapping (DB values -> short display)
-// -----------------------------
-const AREA_SHORT_MAP = {
+import React from 'react'import React from '_SHORT_MAP = {
   'Maint-1': 'M1',
   'Maint-2': 'M2',
   'Insp-shed': 'Insp',
@@ -24,6 +16,7 @@ const AREA_SHORT_MAP = {
   '3CL': '3CL',
   '4CL': '4CL',
 }
+
 const SHORT_ORDER = ['M1', 'M2', 'Insp', 'RShed', '1CL', '2CL', '3CL', '4CL']
 const STANDARD_DB_AREAS = ['Maint-1', 'Maint-2', 'Insp-shed', 'Rep-Shed', '1-Clean', '2-Clean', '3-Clean', '4-Clean']
 
@@ -34,6 +27,7 @@ function isOtherArea(a) {
   if (s.toLowerCase().startsWith('other:')) return true
   return !STANDARD_DB_AREAS.includes(s) && !Object.prototype.hasOwnProperty.call(AREA_SHORT_MAP, s)
 }
+
 function extractOtherText(a) {
   if (!a) return ''
   const s = String(a).trim()
@@ -43,6 +37,7 @@ function extractOtherText(a) {
   if (isOtherArea(s)) return s
   return ''
 }
+
 function shortStandardArea(a) {
   if (!a) return ''
   const s = String(a).trim()
@@ -50,10 +45,12 @@ function shortStandardArea(a) {
   if (AREA_SHORT_MAP[s]) return AREA_SHORT_MAP[s]
   return ''
 }
+
 function areasTextForTables(areas) {
   const arr = Array.isArray(areas) ? areas : []
   const standards = new Set()
   const others = new Set()
+
   for (const a of arr) {
     const std = shortStandardArea(a)
     if (std) standards.add(std)
@@ -62,10 +59,12 @@ function areasTextForTables(areas) {
       if (oth) others.add(oth)
     }
   }
+
   const stdList = Array.from(standards).sort((x, y) => SHORT_ORDER.indexOf(x) - SHORT_ORDER.indexOf(y))
   const otherList = Array.from(others).sort((x, y) => x.localeCompare(y))
   return [...stdList, ...otherList].join(', ')
 }
+
 function hasAnyOther(areas) {
   const arr = Array.isArray(areas) ? areas : []
   for (const a of arr) if (extractOtherText(a)) return true
@@ -93,9 +92,11 @@ function formatStaffEmail(email) {
   if (!e) return ''
   const local = e.split('@')[0] || ''
   if (!local) return ''
+
   const parts = local.split('.').filter(Boolean)
   const firstPart = parts[0] || local
   const lastPart = parts.length > 1 ? parts[parts.length - 1] : firstPart
+
   const initial = (firstPart[0] || '').toUpperCase()
   const surname = (lastPart[0] || '').toUpperCase() + (lastPart.slice(1) || '').toLowerCase()
   if (!initial || !surname) return local
@@ -108,6 +109,7 @@ function csvEscape(v) {
   if (s.includes('"') || s.includes(',') || s.includes(NL)) return '"' + s.replace(/"/g, '""') + '"'
   return s
 }
+
 function downloadCsv(filename, rows) {
   if (!rows || rows.length === 0) return
   const header = Object.keys(rows[0]).join(',')
@@ -140,6 +142,7 @@ function decodeJwtPayload(token) {
     return null
   }
 }
+
 async function getAppRoleFromAuth() {
   try {
     const { data } = await supabase.auth.getSession()
@@ -150,6 +153,7 @@ async function getAppRoleFromAuth() {
   } catch {
     // ignore
   }
+
   try {
     const key = Object.keys(localStorage).find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
     if (!key) return null
@@ -165,6 +169,7 @@ async function getAppRoleFromAuth() {
     return null
   }
 }
+
 function isTeamLeaderRole(role) {
   const r = String(role || '').trim().toLowerCase()
   return r === 'teamleader' || r === 'team_leader' || r === 'team leader' || r === 'teamlead' || r === 'tl'
@@ -192,6 +197,7 @@ function SectionHeader({ title, tone = 'slate' }) {
 // -----------------------------
 function Summary({ items }) {
   const onSite = items.filter((i) => i.status !== 'signed_out' && !i.signed_out_at)
+
   const counts = {}
   SHORT_ORDER.forEach((k) => (counts[k] = 0))
   let otherCount = 0
@@ -207,6 +213,7 @@ function Summary({ items }) {
 
   const tileClass =
     'border border-[#0b3a5a] bg-[#0b3a5a] text-white rounded-lg px-3 py-2 shadow-sm flex items-center justify-between gap-3 min-w-[86px]'
+
   const tile = (label, value) => (
     <div className={tileClass} key={label}>
       <div className="text-xs font-semibold tracking-wide opacity-90">{label}</div>
@@ -234,16 +241,13 @@ function Summary({ items }) {
 // -----------------------------
 function DeclineModal({ open, name, darkMode, checked, setChecked, onCancel, onOk }) {
   if (!open) return null
-
   const overlay = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'
   const card = darkMode
     ? 'w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 text-slate-100 shadow-xl'
     : 'w-full max-w-md rounded-lg border border-slate-200 bg-white text-slate-900 shadow-xl'
-
   const btnCancel = darkMode
     ? 'px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white'
     : 'px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-900'
-
   const btnOkEnabled = 'px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white'
   const btnOkDisabled = darkMode
     ? 'px-3 py-1 rounded bg-slate-700 text-slate-300 cursor-not-allowed'
@@ -259,13 +263,11 @@ function DeclineModal({ open, name, darkMode, checked, setChecked, onCancel, onO
             <br />
             This will remove the request and delete their details from the database.
           </p>
-
           <label className="flex items-center gap-2 text-sm select-none">
             <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
             Yes
           </label>
         </div>
-
         <div className="px-4 pb-4 flex items-center justify-end gap-2">
           <button onClick={onCancel} className={btnCancel}>
             Cancel
@@ -289,6 +291,7 @@ function AwaitingRow({ item, onConfirm, onDecline, canDecline, darkMode }) {
   const accent = darkMode ? 'border-l-4 border-emerald-400' : 'border-l-4 border-emerald-700'
   const textMain = darkMode ? 'text-emerald-50' : 'text-emerald-950'
   const textSoft = darkMode ? 'text-emerald-50/90' : 'text-emerald-950/90'
+
   const inputCls = darkMode
     ? 'border rounded px-2 py-1 w-28 bg-slate-900 text-slate-100 border-slate-600'
     : 'border rounded px-2 py-1 w-28 bg-white'
@@ -311,13 +314,9 @@ function AwaitingRow({ item, onConfirm, onDecline, canDecline, darkMode }) {
       </td>
       <td className="px-2 py-2 whitespace-nowrap">
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => onConfirm(item.id, fob)}
-            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-          >
+          <button onClick={() => onConfirm(item.id, fob)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
             Confirm sign-in
           </button>
-
           {/* Decline only exists here (Awaiting confirmation) */}
           <button
             onClick={() => onDecline(item)}
@@ -359,6 +358,7 @@ export default function Dashboard() {
       return false
     }
   })
+
   React.useEffect(() => {
     try {
       localStorage.setItem('theme', darkMode ? 'dark' : 'light')
@@ -366,6 +366,7 @@ export default function Dashboard() {
       // ignore
     }
   }, [darkMode])
+
   function toggleDarkMode() {
     setDarkMode((v) => !v)
   }
@@ -381,10 +382,12 @@ export default function Dashboard() {
   function canConfirmSignOut(item) {
     if (!item) return false
     const fobIssued = hasFobIssued(item)
+
     if (isAdmin) {
       if (fobIssued) return !!item.fob_returned
       return !!item.signout_requested
     }
+
     if (!item.signout_requested) return false
     if (!fobIssued) return true
     return !!item.fob_returned
@@ -400,6 +403,7 @@ export default function Dashboard() {
   }
 
   const loadRef = React.useRef(null)
+
   async function load() {
     setError('')
     const role = await getAppRoleFromAuth()
@@ -411,12 +415,7 @@ export default function Dashboard() {
       return
     }
 
-    const { data, error: listErr } = await supabase
-      .from('contractors')
-      .select('*')
-      .order('signed_in_at', { ascending: false })
-      .limit(500)
-
+    const { data, error: listErr } = await supabase.from('contractors').select('*').order('signed_in_at', { ascending: false }).limit(500)
     if (listErr) setError(listErr.message)
     setItems(data || [])
   }
@@ -437,6 +436,7 @@ export default function Dashboard() {
   React.useEffect(() => {
     if (appRole === 'Display') return
     let debounceTimer = null
+
     const channel = supabase
       .channel('contractors-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contractors' }, () => {
@@ -526,9 +526,7 @@ export default function Dashboard() {
       alert('Only awaiting (pending) requests can be declined.')
       return
     }
-
     setDeclineOpen(false)
-
     const { error } = await supabase.from('contractors').delete().eq('id', declineItem.id)
     if (error) alert(error.message)
     else load()
@@ -576,6 +574,7 @@ export default function Dashboard() {
   function exportAllTables() {
     const awaiting = items.filter((i) => i.status === 'pending' && !i.signed_out_at)
     const onSite = items.filter((i) => i.status === 'confirmed' && !i.signed_out_at)
+
     const fourDaysAgo = Date.now() - 4 * 24 * 60 * 60 * 1000
     const signedOut = items
       .filter((i) => i.signed_out_at)
@@ -648,6 +647,7 @@ export default function Dashboard() {
   const now = Date.now()
   const cutoffMs = signedOutExpanded ? 4 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000
   const cutoff = now - cutoffMs
+
   const signedOutAll = items
     .filter((i) => i.signed_out_at)
     .filter((i) => new Date(i.signed_out_at).getTime() >= cutoff)
@@ -769,7 +769,6 @@ export default function Dashboard() {
               const canSignOut = canConfirmSignOut(i)
               const reason = signOutDisabledReason(i)
               const fobIssued = hasFobIssued(i)
-
               const rowTone = i.signout_requested ? (darkMode ? 'bg-rose-500/25' : 'bg-rose-200') : ''
               const accent = i.signout_requested ? (darkMode ? 'border-l-4 border-rose-400' : 'border-l-4 border-rose-700') : ''
 
@@ -784,7 +783,6 @@ export default function Dashboard() {
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateDayMonthTime(i.signed_in_at)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{i.fob_number || '-'}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{formatStaffEmail(i.sign_in_confirmed_by_email) || '-'}</td>
-
                   <td className="px-2 py-2 whitespace-nowrap">
                     {!fobIssued ? (
                       <span className={mutedText}>N/A</span>
@@ -797,9 +795,7 @@ export default function Dashboard() {
                       />
                     )}
                   </td>
-
                   <td className="px-2 py-2 whitespace-nowrap">{i.signout_requested ? 'Yes' : 'No'}</td>
-
                   <td className="px-2 py-2 whitespace-nowrap">
                     <button
                       onClick={() => confirmSignOut(i)}
@@ -826,7 +822,8 @@ export default function Dashboard() {
           {signedOutExpanded ? ', last 4 days' : ', last 12 hours'})
         </div>
 
-        {!signedOutExpanded && signedOutAll.length > 5 && (
+        {/* ✅ CHANGE: Always show "Show more" when not expanded */}
+        {!signedOutExpanded && (
           <button
             onClick={() => setSignedOutExpanded(true)}
             className="px-3 py-1 text-sm bg-slate-900 text-white rounded hover:bg-slate-800"
@@ -892,7 +889,16 @@ export default function Dashboard() {
         </table>
       </div>
 
-      <div className={`mt-3 text-xs ${mutedText}`}>Signed-out records are kept for up to 30 days and then automatically removed.</div>
+      <div className={`mt-3 text-xs ${mutedText}`}>
+        Signed-out records are kept for up to 30 days and then automatically removed.
+      </div>
     </div>
   )
 }
+import { supabase } from '../supabaseClient'
+
+const NL = String.fromCharCode(10)
+
+// -----------------------------
+// Area mapping (DB values -> short display)
+// -----------------------------
