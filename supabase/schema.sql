@@ -1,14 +1,16 @@
 -- ============================================
--- ContractorECR schema.sql (Option A - Hardened)
--- Includes:
--- - profiles + roles (New_Teamleader/teamleader/admin/Display)
--- - contractors table (areas text[])
--- - RLS policies
--- - realtime publication enablement
--- - Custom Access Token Hook (JWT role claim)
--- - Hardened cleanup: ONLY delete signed-out records older than N days
--- - Delete audit table + logging
+-- ContractorECR schema.sql (Option A - Hardened + Security Patch, corrected)
+-- - Keeps anon insert (kiosk compatibility)
+-- - Unique partial index: no duplicate open entries (company+phone)
+-- - request_signout updates only ONE latest matching row
+-- - Server-side attribution for *_by and *_by_email fields
+-- - Phone format validation
+-- - Insert/Update audit trail + delete audit
+-- - Hardened cleanup: ONLY delete signed_out_at older than N days
+-- - Cleanup audited, and EXECUTE restricted to service_role
 -- - pg_cron daily schedule at 03:00 (safe re-create)
+-- - FIX: Realtime block uses n.nspname (typo corrected)
+-- - FIX: all_areas_valid uses plpgsql and self-guards if public.areas absent
 -- ============================================
 
 -- Extensions
@@ -142,8 +144,14 @@ create index if not exists contractors_status_idx on public.contractors (status)
 create index if not exists contractors_signed_in_idx on public.contractors (signed_in_at desc);
 create index if not exists contractors_signed_out_idx on public.contractors (signed_out_at desc);
 
+-- Prevent multiple open records per company+phone
+create unique index if not exists contractors_unique_open_company_phone_idx
+on public.contractors (company, phone)
+where signed_out_at is null;
+
 -- =========================
 -- Public sign-out request function (used by SignOut page)
+-- Hardened: only flips ONE most recent open match
 -- =========================
 create or replace function public.request_signout(p_first text, p_phone text)
 returns integer
@@ -152,15 +160,25 @@ security definer
 set search_path = public
 as $$
 declare
- v_count integer;
+ v_id uuid;
 begin
- update public.contractors
- set signout_requested = true
+ select id into v_id
+ from public.contractors
  where signed_out_at is null
    and lower(first_name) = lower(trim(p_first))
-   and phone = trim(p_phone);
- get diagnostics v_count = row_count;
- return v_count;
+   and phone = trim(p_phone)
+ order by signed_in_at desc
+ limit 1;
+
+ if v_id is null then
+  return 0;
+ end if;
+
+ update public.contractors
+ set signout_requested = true
+ where id = v_id;
+
+ return 1;
 end;
 $$;
 
@@ -205,7 +223,6 @@ $$;
 
 -- ============================================================
 -- Custom Access Token Hook (JWT role claim)
--- Injects role into JWT: claims.app_metadata.app_role
 -- ============================================================
 create or replace function public.custom_access_token_hook(event jsonb)
 returns jsonb
@@ -244,7 +261,6 @@ begin
 
  return jsonb_build_object('claims', claims);
 exception when others then
- -- Fail-safe: never block auth if unexpected errors occur
  return jsonb_build_object('claims', claims);
 end;
 $$;
@@ -275,7 +291,7 @@ for select
 to authenticated
 using (public.is_admin());
 
--- Contractors: public can insert sign-in requests
+-- Contractors: public can insert sign-in requests (kiosk)
 drop policy if exists "Public can insert contractor sign-in" on public.contractors;
 create policy "Public can insert contractor sign-in"
 on public.contractors
@@ -299,13 +315,8 @@ for update
 to authenticated
 using (public.is_teamleader());
 
--- ✅ DELETE LOCKDOWN:
--- Only allow delete for pending requests (Awaiting confirmation).
--- Once confirmed/signed-in, records cannot be deleted via the app (even by admin).
-drop policy if exists "Admins can delete contractors" on public.contractors;
-drop policy if exists "Teamleaders can delete pending contractors" on public.contractors;
+-- ✅ DELETE LOCKDOWN
 drop policy if exists "Privileged can delete pending contractors" on public.contractors;
-
 create policy "Privileged can delete pending contractors"
 on public.contractors
 for delete
@@ -321,10 +332,168 @@ using (
 grant delete on table public.contractors to authenticated;
 
 -- =========================
+-- INPUT VALIDATION
+-- =========================
+
+-- Phone: accept 7..20 digits when non-digits stripped
+DO $$
+BEGIN
+ IF NOT EXISTS (
+   SELECT 1 FROM pg_constraint
+   WHERE conname = 'contractors_phone_format_chk'
+     AND conrelid = 'public.contractors'::regclass
+ ) THEN
+   ALTER TABLE public.contractors
+     ADD CONSTRAINT contractors_phone_format_chk
+     CHECK (length(regexp_replace(phone, '\D', '', 'g')) between 7 and 20);
+ END IF;
+END $$;
+
+-- Areas validation helper (safe even if public.areas does not exist)
+create or replace function public.all_areas_valid(areas text[])
+returns boolean
+language plpgsql
+stable
+as $$
+declare
+  t_exists boolean;
+  invalid_count integer;
+begin
+  -- Check if public.areas table exists; if not, treat as valid
+  select exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public' and table_name = 'areas'
+  ) into t_exists;
+
+  if not t_exists then
+    return true;
+  end if;
+
+  -- Validate each element against public.areas(code)
+  select count(*) into invalid_count
+  from unnest(areas) a
+  left join public.areas ar on ar.code = a
+  where ar.code is null;
+
+  return (invalid_count = 0);
+end;
+$$;
+
+-- Add constraint only if public.areas exists (and avoid duplicate add)
+DO $$
+BEGIN
+ IF EXISTS (
+   SELECT 1 FROM information_schema.tables
+   WHERE table_schema = 'public' AND table_name = 'areas'
+ ) AND NOT EXISTS (
+   SELECT 1 FROM pg_constraint
+   WHERE conname = 'contractors_areas_valid_chk'
+     AND conrelid = 'public.contractors'::regclass
+ ) THEN
+   ALTER TABLE public.contractors
+     ADD CONSTRAINT contractors_areas_valid_chk
+     CHECK (public.all_areas_valid(areas));
+ END IF;
+END $$;
+
+-- =========================
+-- SERVER-SIDE ATTRIBUTION (prevent spoofing of *_by fields)
+-- =========================
+
+-- Helper to read jwt email safely
+create or replace function public.current_jwt_email()
+returns text
+language plpgsql
+stable
+as $$
+declare
+  claims json;
+  v_email text;
+begin
+  begin
+    claims := current_setting('request.jwt.claims', true)::json;
+    v_email := coalesce(claims->>'email', null);
+  exception when others then
+    v_email := null;
+  end;
+  return v_email;
+end;
+$$;
+
+-- Trigger: enforce server-side attribution for sign-in confirm / sign-out
+create or replace function public.enforce_actor_fields()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE' then
+    -- If sign-in got confirmed in this update
+    if new.sign_in_confirmed_at is distinct from old.sign_in_confirmed_at
+       and new.sign_in_confirmed_at is not null then
+      new.sign_in_confirmed_by := auth.uid();
+      new.sign_in_confirmed_by_email := public.current_jwt_email();
+    end if;
+
+    -- If sign-out was done in this update
+    if new.signed_out_at is distinct from old.signed_out_at
+       and new.signed_out_at is not null then
+      new.signed_out_by := auth.uid();
+      new.signed_out_by_email := public.current_jwt_email();
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_enforce_actor_fields on public.contractors;
+create trigger trg_enforce_actor_fields
+before update on public.contractors
+for each row execute function public.enforce_actor_fields();
+
+-- =========================
+-- AUDIT: insert/update (delete audit below)
+-- =========================
+create table if not exists public.contractors_audit (
+  id bigserial primary key,
+  contractor_id uuid not null,
+  action text not null,                       -- 'insert' | 'update'
+  changed_at timestamptz not null default now(),
+  changed_by uuid,
+  changed_by_email text,
+  old_row jsonb,
+  new_row jsonb
+);
+
+create or replace function public.audit_contractors()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.contractors_audit (contractor_id, action, changed_by, changed_by_email, new_row)
+    values (new.id, 'insert', auth.uid(), public.current_jwt_email(), to_jsonb(new));
+    return new;
+  elsif tg_op = 'UPDATE' then
+    insert into public.contractors_audit (contractor_id, action, changed_by, changed_by_email, old_row, new_row)
+    values (new.id, 'update', auth.uid(), public.current_jwt_email(), to_jsonb(old), to_jsonb(new));
+    return new;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists trg_audit_contractors on public.contractors;
+create trigger trg_audit_contractors
+after insert or update on public.contractors
+for each row execute function public.audit_contractors();
+
+-- =========================
 -- HARDENED CLEANUP (Option A)
 -- =========================
 
--- 1) Delete audit table (idempotent)
+-- Delete audit table (idempotent)
 create table if not exists public.contractors_delete_audit (
   id uuid primary key default gen_random_uuid(),
   deleted_at timestamptz not null default now(),
@@ -333,7 +502,7 @@ create table if not exists public.contractors_delete_audit (
   invoked_by text
 );
 
--- 2) Cleanup function: ONLY delete rows with a signed_out_at older than X days
+-- Cleanup function: ONLY delete rows with a signed_out_at older than X days
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 30)
 returns void
 language plpgsql
@@ -357,6 +526,9 @@ $$;
 -- Tighten privileges: only service_role (backend) may invoke
 revoke execute on function public.cleanup_old_contractor_data(integer) from public, anon, authenticated;
 grant execute on function public.cleanup_old_contractor_data(integer) to service_role;
+
+-- OPTIONAL: Force RLS if you want stricter guarantees (commented by default)
+-- alter table public.contractors force row level security;
 
 -- =========================
 -- OPTIONAL: Schedule daily cleanup via pg_cron (if available)
