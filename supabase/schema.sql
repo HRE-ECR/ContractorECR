@@ -1,12 +1,14 @@
 -- ============================================
--- ContractorECR schema.sql (clean)
+-- ContractorECR schema.sql (Option A - Hardened)
 -- Includes:
 -- - profiles + roles (New_Teamleader/teamleader/admin/Display)
 -- - contractors table (areas text[])
 -- - RLS policies
 -- - realtime publication enablement
 -- - Custom Access Token Hook (JWT role claim)
--- - Cleanup retention: 30 days (optional pg_cron schedule)
+-- - Hardened cleanup: ONLY delete signed-out records older than N days
+-- - Delete audit table + logging
+-- - pg_cron daily schedule at 03:00 (safe re-create)
 -- ============================================
 
 -- Extensions
@@ -93,9 +95,9 @@ BEGIN
   SELECT 1
   FROM information_schema.columns
   WHERE table_schema = 'public'
-  AND table_name = 'contractors'
-  AND column_name = 'areas'
-  AND udt_name = '_area_type'
+    AND table_name = 'contractors'
+    AND column_name = 'areas'
+    AND udt_name = '_area_type'
  ) THEN
   ALTER TABLE public.contractors
   ALTER COLUMN areas TYPE text[]
@@ -110,7 +112,7 @@ BEGIN
   SELECT 1
   FROM pg_constraint
   WHERE conname = 'contractors_at_least_one_area'
-  AND conrelid = 'public.contractors'::regclass
+    AND conrelid = 'public.contractors'::regclass
  ) THEN
   ALTER TABLE public.contractors
   ADD CONSTRAINT contractors_at_least_one_area
@@ -155,8 +157,8 @@ begin
  update public.contractors
  set signout_requested = true
  where signed_out_at is null
- and lower(first_name) = lower(trim(p_first))
- and phone = trim(p_phone);
+   and lower(first_name) = lower(trim(p_first))
+   and phone = trim(p_phone);
  get diagnostics v_count = row_count;
  return v_count;
 end;
@@ -315,44 +317,66 @@ using (
   and signed_out_at is null
 );
 
--- ✅ Ensure authenticated has delete privilege (RLS still applies)
+-- Ensure authenticated has delete privilege (RLS still applies)
 grant delete on table public.contractors to authenticated;
 
 -- =========================
--- Cleanup function (RETENTION: 30 DAYS)
+-- HARDENED CLEANUP (Option A)
 -- =========================
+
+-- 1) Delete audit table (idempotent)
+create table if not exists public.contractors_delete_audit (
+  id uuid primary key default gen_random_uuid(),
+  deleted_at timestamptz not null default now(),
+  deleted_count integer not null,
+  days_to_keep integer not null,
+  invoked_by text
+);
+
+-- 2) Cleanup function: ONLY delete rows with a signed_out_at older than X days
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 30)
 returns void
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_deleted integer;
 begin
- delete from public.contractors c
- where coalesce(c.signed_out_at, c.signed_in_at) < now() - make_interval(days => days_to_keep);
+  delete from public.contractors c
+  where c.signed_out_at is not null
+    and c.signed_out_at < now() - make_interval(days => days_to_keep);
+
+  get diagnostics v_deleted = row_count;
+
+  insert into public.contractors_delete_audit (deleted_count, days_to_keep, invoked_by)
+  values (v_deleted, days_to_keep, current_user);
 end;
 $$;
 
-grant execute on function public.cleanup_old_contractor_data(integer) to service_role, authenticated;
+-- Tighten privileges: only service_role (backend) may invoke
+revoke execute on function public.cleanup_old_contractor_data(integer) from public, anon, authenticated;
+grant execute on function public.cleanup_old_contractor_data(integer) to service_role;
 
 -- =========================
 -- OPTIONAL: Schedule daily cleanup via pg_cron (if available)
 -- Runs at 03:00 daily: keeps 30 days of data
+-- Safely replaces any existing job with same name
 -- =========================
 DO $$
 BEGIN
  IF EXISTS (select 1 from pg_extension where extname = 'pg_cron') THEN
-  BEGIN
-   IF NOT EXISTS (select 1 from cron.job where jobname = 'cleanup_contractors_daily') THEN
-    PERFORM cron.schedule(
-     'cleanup_contractors_daily',
-     '0 3 * * *',
-     $job$select public.cleanup_old_contractor_data(30);$job$
-    );
-   END IF;
-  EXCEPTION WHEN undefined_table THEN
-   NULL;
-  END;
+  -- Unschedule any previous job with the same name
+  IF EXISTS (select 1 from cron.job where jobname = 'cleanup_contractors_daily') THEN
+    PERFORM cron.unschedule(jobid) FROM cron.job WHERE jobname = 'cleanup_contractors_daily';
+  END IF;
+
+  -- Schedule fresh job
+  PERFORM cron.schedule(
+    'cleanup_contractors_daily',
+    '0 3 * * *',
+    $job$select public.cleanup_old_contractor_data(30);$job$
+  );
  END IF;
 END $$;
 
@@ -368,8 +392,8 @@ BEGIN
   JOIN pg_class c ON c.oid = pr.prrelid
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE p.pubname = 'supabase_realtime'
-  AND n.nspname = 'public'
-  AND c.relname = 'contractors'
+    AND n.nspname = 'public'
+    AND c.relname = 'contractors'
  ) THEN
   EXECUTE 'alter publication supabase_realtime add table public.contractors';
  END IF;
