@@ -1,16 +1,17 @@
 -- ============================================
--- ContractorECR schema.sql (Option A - Hardened + Security Patch, corrected)
+-- ContractorECR schema.sql (Option A - Hardened + Security Patch, final)
 -- - Keeps anon insert (kiosk compatibility)
 -- - Unique partial index: no duplicate open entries (company+phone)
 -- - request_signout updates only ONE latest matching row
 -- - Server-side attribution for *_by and *_by_email fields
 -- - Phone format validation
--- - Insert/Update audit trail + delete audit
+-- - Insert/Update audit trail (RLS protected)
+-- - Delete audit (RLS protected)
 -- - Hardened cleanup: ONLY delete signed_out_at older than N days
 -- - Cleanup audited, and EXECUTE restricted to service_role
 -- - pg_cron daily schedule at 03:00 (safe re-create)
--- - FIX: Realtime block uses n.nspname (typo corrected)
--- - FIX: all_areas_valid uses plpgsql and self-guards if public.areas absent
+-- - Realtime add-table guarded and typo fixed
+-- - Areas validation function safe even if public.areas doesn't exist
 -- ============================================
 
 -- Extensions
@@ -315,7 +316,7 @@ for update
 to authenticated
 using (public.is_teamleader());
 
--- ✅ DELETE LOCKDOWN
+-- ✅ DELETE LOCKDOWN (app-level deletes only for pending requests)
 drop policy if exists "Privileged can delete pending contractors" on public.contractors;
 create policy "Privileged can delete pending contractors"
 on public.contractors
@@ -453,8 +454,10 @@ before update on public.contractors
 for each row execute function public.enforce_actor_fields();
 
 -- =========================
--- AUDIT: insert/update (delete audit below)
+-- AUDIT TABLES + RLS
 -- =========================
+
+-- Insert/Update audit table
 create table if not exists public.contractors_audit (
   id bigserial primary key,
   contractor_id uuid not null,
@@ -466,9 +469,59 @@ create table if not exists public.contractors_audit (
   new_row jsonb
 );
 
+-- Delete audit table (count-only audit for cleanup and deletes)
+create table if not exists public.contractors_delete_audit (
+  id uuid primary key default gen_random_uuid(),
+  deleted_at timestamptz not null default now(),
+  deleted_count integer not null,
+  days_to_keep integer not null,
+  invoked_by text
+);
+
+-- Enable RLS on audit tables
+alter table if exists public.contractors_audit enable row level security;
+alter table if exists public.contractors_delete_audit enable row level security;
+
+-- Remove accidental grants
+revoke all on table public.contractors_audit from public, anon, authenticated;
+revoke all on table public.contractors_delete_audit from public, anon, authenticated;
+
+-- Audit SELECT is admin-only
+drop policy if exists "Admins can read contractors_audit" on public.contractors_audit;
+create policy "Admins can read contractors_audit"
+on public.contractors_audit
+for select
+to authenticated
+using (public.is_admin());
+
+drop policy if exists "Admins can read contractors_delete_audit" on public.contractors_delete_audit;
+create policy "Admins can read contractors_delete_audit"
+on public.contractors_delete_audit
+for select
+to authenticated
+using (public.is_admin());
+
+-- Allow inserts for triggers/maintenance (no GRANT INSERT to clients, so safe)
+drop policy if exists "Allow inserts into contractors_audit (trigger)" on public.contractors_audit;
+create policy "Allow inserts into contractors_audit (trigger)"
+on public.contractors_audit
+for insert
+to public
+with check (true);
+
+drop policy if exists "Allow inserts into contractors_delete_audit (cleanup)" on public.contractors_delete_audit;
+create policy "Allow inserts into contractors_delete_audit (cleanup)"
+on public.contractors_delete_audit
+for insert
+to public
+with check (true);
+
+-- Audit trigger function (SECURITY DEFINER so it can always write)
 create or replace function public.audit_contractors()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 begin
   if tg_op = 'INSERT' then
@@ -484,6 +537,7 @@ begin
 end;
 $$;
 
+-- Create/refresh trigger
 drop trigger if exists trg_audit_contractors on public.contractors;
 create trigger trg_audit_contractors
 after insert or update on public.contractors
@@ -492,15 +546,6 @@ for each row execute function public.audit_contractors();
 -- =========================
 -- HARDENED CLEANUP (Option A)
 -- =========================
-
--- Delete audit table (idempotent)
-create table if not exists public.contractors_delete_audit (
-  id uuid primary key default gen_random_uuid(),
-  deleted_at timestamptz not null default now(),
-  deleted_count integer not null,
-  days_to_keep integer not null,
-  invoked_by text
-);
 
 -- Cleanup function: ONLY delete rows with a signed_out_at older than X days
 create or replace function public.cleanup_old_contractor_data(days_to_keep integer default 30)
@@ -553,21 +598,23 @@ BEGIN
 END $$;
 
 -- =========================
--- Realtime (Postgres Changes) enablement
+-- Realtime (Postgres Changes) enablement - safe if publication exists
 -- =========================
 DO $$
 BEGIN
- IF NOT EXISTS (
-  SELECT 1
-  FROM pg_publication p
-  JOIN pg_publication_rel pr ON pr.prpubid = p.oid
-  JOIN pg_class c ON c.oid = pr.prrelid
-  JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE p.pubname = 'supabase_realtime'
-    AND n.nspname = 'public'
-    AND c.relname = 'contractors'
- ) THEN
-  EXECUTE 'alter publication supabase_realtime add table public.contractors';
+ IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+   IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication p
+    JOIN pg_publication_rel pr ON pr.prpubid = p.oid
+    JOIN pg_class c ON c.oid = pr.prrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE p.pubname = 'supabase_realtime'
+      AND n.nspname = 'public'
+      AND c.relname = 'contractors'
+   ) THEN
+    EXECUTE 'alter publication supabase_realtime add table public.contractors';
+   END IF;
  END IF;
 END $$;
 
