@@ -12,6 +12,47 @@ const AREAS = [
   '4-Clean',
 ]
 
+function validatePhoneNumber(phone) {
+  const raw = String(phone ?? '').trim()
+
+  if (!raw) {
+    return 'Please enter a phone number.'
+  }
+
+  const digits = raw.replace(/\D/g, '')
+
+  if (digits.length < 7 || digits.length > 20) {
+    return 'Please enter a valid phone number with 7 to 20 digits.'
+  }
+
+  // Allow common phone characters only
+  if (!/^[\d+\s().-]+$/.test(raw)) {
+    return 'Please enter a valid phone number using only numbers, spaces, brackets, dots, hyphens, or a leading +.'
+  }
+
+  return ''
+}
+
+function getFriendlyErrorMessage(err) {
+  const raw = String(err?.message || err || '').trim()
+  if (!raw) return 'Something went wrong. Please try again.'
+
+  const lower = raw.toLowerCase()
+
+  if (
+    lower.includes('contractors_phone_format_chk') ||
+    (lower.includes('phone') && lower.includes('check constraint'))
+  ) {
+    return 'Invalid phone number. Please enter 7 to 20 digits. You can use spaces, brackets, hyphens, dots, or +.'
+  }
+
+  if (lower.includes('phone') && (lower.includes('invalid') || lower.includes('format'))) {
+    return 'Invalid phone number format. Please check the number and try again.'
+  }
+
+  return raw
+}
+
 export default function SignIn() {
   const [form, setForm] = React.useState({
     first_name: '',
@@ -26,7 +67,6 @@ export default function SignIn() {
   // - clears on focus
   // - restores on blur if left empty
   const [otherArea, setOtherArea] = React.useState('Other')
-
   const [loading, setLoading] = React.useState(false)
   const [message, setMessage] = React.useState('')
   const [error, setError] = React.useState('')
@@ -38,13 +78,10 @@ export default function SignIn() {
   // ✅ Block background scroll while modal is open + focus the button
   React.useEffect(() => {
     if (!showSuccessModal) return
-
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-
     // focus for kiosk / accessibility
     const t = setTimeout(() => acknowledgeRef.current?.focus(), 0)
-
     return () => {
       clearTimeout(t)
       document.body.style.overflow = prevOverflow
@@ -82,7 +119,14 @@ export default function SignIn() {
       return
     }
 
+    const phoneError = validatePhoneNumber(form.phone)
+    if (phoneError) {
+      setError(phoneError)
+      return
+    }
+
     setLoading(true)
+
     const { error: err } = await supabase.from('contractors').insert({
       first_name: form.first_name.trim(),
       surname: form.surname.trim(),
@@ -91,14 +135,15 @@ export default function SignIn() {
       areas: pickedAreas,
       status: 'pending',
     })
+
     setLoading(false)
 
-    if (err) setError(err.message)
-    else {
+    if (err) {
+      setError(getFriendlyErrorMessage(err))
+    } else {
       setMessage('Signed-in request recorded. Please see a Team Leader to receive a visitor fob.')
       setForm({ first_name: '', surname: '', company: '', phone: '', areas: [] })
       setOtherArea('Other')
-
       // ✅ Show modal on successful sign-in
       setShowSuccessModal(true)
     }
@@ -165,7 +210,7 @@ export default function SignIn() {
         </div>
       )}
 
-      {/* ✅ Everything below is your original page (unchanged) */}
+      {/* ✅ Everything below is your original page (unchanged layout) */}
       <h1 className="text-2xl font-bold mb-4">Contractor/Visitor sign-in</h1>
 
       <form onSubmit={handleSubmit} className="space-y-4 bg-white p-4 rounded border border-slate-200">
@@ -203,10 +248,13 @@ export default function SignIn() {
           <div>
             <label className="block text-sm text-slate-600">Phone number (unique identifier)</label>
             <input
-              className="mt-1 w-full border rounded p-2"
+              className={`mt-1 w-full border rounded p-2 ${error.toLowerCase().includes('phone') ? 'border-red-500 bg-red-50' : ''}`}
               inputMode="tel"
               value={form.phone}
-              onChange={e => setForm({ ...form, phone: e.target.value })}
+              onChange={e => {
+                setForm({ ...form, phone: e.target.value })
+                if (error.toLowerCase().includes('phone')) setError('')
+              }}
               required
             />
           </div>
@@ -214,7 +262,6 @@ export default function SignIn() {
 
         <div>
           <label className="block text-sm text-slate-600 mb-1">Area of work (select one or more)</label>
-
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {AREAS.map(a => (
               <label
@@ -252,7 +299,7 @@ export default function SignIn() {
           </div>
         </div>
 
-        {error && <p className="text-red-600">{error}</p>}
+        {error && <p className="text-red-600 font-medium">{error}</p>}
         {message && <p className="text-green-700">{message}</p>}
 
         <button disabled={loading} className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800 disabled:opacity-50">
@@ -262,3 +309,4 @@ export default function SignIn() {
     </section>
   )
 }
+``
